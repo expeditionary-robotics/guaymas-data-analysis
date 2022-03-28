@@ -3,7 +3,7 @@
 2. Download the relevent cruise data from [Dropbox](https://www.dropbox.com/sh/aeqfwvkzprejffe/AAAEDHlltJNRAnlv2FT3iiW_a?dl=0). Reach out to Victoria or Genevieve if you need to be added to the Dropbox data share. 
 3. Place the downloaded `data` and `ouptut` directories in the root directory of the repostiory, i.e., in `guaymas-cruise-analysis/data` and `guaymas-cruise-analysis/output`.
 4. Install the `pipenv` virtual Python environment: `pipenv install`. 
-5. Active the Python virtual environment: `pipenv shell`. You should always activate the virtual environment when running code in this respository. 
+5. Active the Python virtual environment: `pipenv shell`. You should always activate the virtual environment when running code in this respository. This will ensure that you have the right Python packages and versions installed and that your PYTHONPATH is correctly set. 
 6. Run the data analysis scripts in the `data_processing` folder. These scripts will generate data products in the folder `data` and graphs/visualization products in the folder `output`. 
 
 # Package Details 
