@@ -1,5 +1,5 @@
 # Setup
-1. Clone the repository locally: `git clone git@github.com:expeditionary-robotics/guaymas-cruise-analysis.git`
+1. Clone the repository locally
 2. Download the relevent cruise data from [Dropbox](https://www.dropbox.com/sh/aeqfwvkzprejffe/AAAEDHlltJNRAnlv2FT3iiW_a?dl=0). Reach out to Victoria or Genevieve if you need to be added to the Dropbox data share. 
 3. Place the downloaded `data` and `ouptut` directories in the root directory of the repostiory, i.e., in `guaymas-cruise-analysis/data` and `guaymas-cruise-analysis/output`.
 4. Install the `pipenv` virtual Python environment: `pipenv install`. 
