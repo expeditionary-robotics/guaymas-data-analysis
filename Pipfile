@@ -4,8 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-sentry_data_analysis = {editable = true, path = "."}
-fumes = {editable = true, path = "../fumes"}
+guaymas_data_analysis = {editable = true, path = "."}
 pytest = "*"
 pylint = "*"
 pydocstyle = "*"
