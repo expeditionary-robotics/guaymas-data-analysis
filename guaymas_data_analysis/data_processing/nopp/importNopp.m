@@ -8,14 +8,18 @@ function [laser,aux] = importNopp(filepath)
     % read filepath as table
     data = readtable(filepath);
     %% parse laser and auxilary data structures
+    %time format
+    infmt = 'yyyyMMdd''T''HHmmss.SSS';
     % laser: time(t), temperature(T), ringdown(R), fundamental(F)
-    laser = data(:,{'Var1','Var2','Var3','Var4'});
+    laser = data(:,{'Var1','Var2','Var3','Var4'});                      
     laser.Properties.VariableNames = {'t','T','R','F'};
-    laser.Properties.VariableUnits = {'ISO' 'Celsius' 'PSI' ''};
+    laser.Properties.VariableUnits = {'datetime' 'Celsius' 'PSI' ''}
+    laser.t = datetime(laser.t,'InputFormat',infmt);    %datetime conversion
     % auxillary: time(t), cell-pressure(cP), cell-temperature(cT),
     %            housing-pressure(hP), housting-temperature(hT),
     %            housting-relative-humidity(RH), power-states(states)
     aux   = data(:,{'Var5','Var6','Var7','Var8','Var9','Var10','Var11'});
     aux.Properties.VariableNames = {'t','cT','cP','hT','hP','RH','states'};
-    aux.Properties.VariableUnits = {'ISO' 'Celsius' 'PSI' 'Celcius' 'PSI' '%' ''};
+    aux.Properties.VariableUnits = {'datetime' 'Celsius' 'PSI' 'Celcius' 'PSI' '%' ''};
+    aux.t = datetime(aux.t,'InputFormat',infmt);    %datetime conversion
 end
