@@ -57,3 +57,9 @@ cal.laser = laser;
 tempStr = split(file,'.');
 filepath = fullfile(path,strcat(tempStr(1),".mat"));
 save(filepath, '-struct', 'cal');
+
+%% applying calibration
+
+NOPP = applyCalibration(cal);
+
+plot(NOPP.t,movmean(NOPP.CH4_F,10),NOPP.t,movmean(NOPP.CH4_R,10));yyaxis right;plot(NOPP.t,NOPP.laser.F)
