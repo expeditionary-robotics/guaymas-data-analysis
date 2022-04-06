@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-guaymas_data_analysis = {editable = true, path = "."}
+guaymas_data_analysis = {editable = true, path = "."}s
 pytest = "*"
 pylint = "*"
 pydocstyle = "*"
