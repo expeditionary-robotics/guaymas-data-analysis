@@ -3,7 +3,7 @@ function NOPP = applyCalibration(cal)
 % respective calibration to user selected data. Saves data in a .mat
 % structure that includes raw data, calibration, and calibrated data.
 
-    [laser,aux]=importNopp()
+    [laser,aux]=importNopp();
 
     NOPP.cal = cal;
     NOPP.laser = laser;
