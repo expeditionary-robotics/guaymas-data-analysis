@@ -1,12 +1,13 @@
-function cal = makeCalibration(path,file)
+function cal = makeCalibration(path,file,ref)
+    % Takes in a NOPP generated file that includes calibration data
+    % points.The reference values in PPM must be previously known and input
+    % by the user.
+
     %% import
     filepath = fullfile(path,file);
     % import cal for NOPP1
     [laser, aux] = importNopp(filepath);
     %% plotting
-    
-    % reference gas values [PPM]
-    ref = [0 4 10 100 1000 10000];
     
     % plot time series
     figure('units','normalized','outerposition',[0 0 1 1])  % full screen
@@ -18,7 +19,7 @@ function cal = makeCalibration(path,file)
         % user select equilibration input
         for i=1:length(ref)
         
-            [x(:,i),~] = ginput(2)
+            [x(:,i),~] = ginput(2);
             T=x(1,i):x(2,i);
             T=round(T);
             

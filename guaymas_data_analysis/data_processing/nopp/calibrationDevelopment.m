@@ -4,7 +4,11 @@ clear
 % relative air calibration file path
 path = "data/cal/air";
 file = "N2cal.txt";
-cal = makeCalibration(path file);
+
+% reference gas values [PPM]
+ref = [0 4 10 100 1000 10000];
+
+cal = makeCalibration(path,file,ref);
 
 %% applying calibration
 
