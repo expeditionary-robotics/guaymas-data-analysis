@@ -8,7 +8,7 @@ file = "N2cal.txt";
 % reference gas values [PPM]
 ref = [0 4 10 100 1000 10000];
 
-cal = makeCalibration(path,file,ref);
+cal = makeCalibration(ref,path,file);
 
 %% applying calibration
 

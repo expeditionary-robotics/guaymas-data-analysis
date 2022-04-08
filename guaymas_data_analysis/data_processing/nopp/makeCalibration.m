@@ -1,7 +1,12 @@
-function cal = makeCalibration(path,file,ref)
+function cal = makeCalibration(ref,path,file)
     % Takes in a NOPP generated file that includes calibration data
     % points.The reference values in PPM must be previously known and input
     % by the user.
+
+
+    if(exist('file','var')==0)
+        [file,path] = uigetfile('*.txt');
+    end
 
     %% import
     filepath = fullfile(path,file);
