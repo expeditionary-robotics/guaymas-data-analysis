@@ -1,173 +1,372 @@
-"""Creates advanced data products for transect analysis."""
+"""Reads in transect data and performs simple analyses and visualization."""
 
 import os
 import utm
 import pandas as pd
 import numpy as np
-from scipy.interpolate import interp1d
-
-from guaymas_data_analysis.utils.metadata_utils import calibrate_nopp
-from guaymas_data_analysis.utils.viz_utils import get_bathy
-
-
-def distance(lat1, lon1, lat2, lon2):
-    """Compute distance between two points."""
-    # approximate radius of earth in km
-    R = 6373.0
-
-    lat1 = np.radians(lat1)
-    lon1 = np.radians(lon1)
-    lat2 = np.radians(lat2)
-    lon2 = np.radians(lon2)
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-
-    return R * c
+import matplotlib.pyplot as plt
+import plotly.graph_objs as go
+from plotly.subplots import make_subplots
+import plotly.express as px
+from itertools import combinations
 
 
-# Import data targets for the transect
-INPUT_NOPP = os.path.join(os.getenv("SENTRY_DATA"),
-                          "nopp/raw/N1-sentry613.txt")
-INPUT_SAGE_LEG1 = os.path.join(os.getenv(
-    "SENTRY_DATA"), "hcf/raw/HCF_CTD10_TransectAcrossGuaymasNorthLeg1.csv")
-INPUT_SAGE_LEG2 = os.path.join(os.getenv(
-    "SENTRY_DATA"), "hcf/raw/HCF_CTD11_TransectAcrossGuaymasNorthLeg2.csv")
-INPUT_ROSETTE = os.path.join(
-    os.getenv("SENTRY_DATA"), "ctd/proc/proc_transect.csv")
-INPUT_GGA = os.path.join(os.getenv("SENTRY_DATA"),
-                         "bottles/proc/gga_transect.csv")
-INPUT_NH4 = os.path.join(os.getenv("SENTRY_DATA"),
-                         "bottles/proc/nh4_transect.csv")
-INPUT_BOTTLES = os.path.join(
-    os.getenv("SENTRY_DATA"), "ctd/proc/proc_bottles.csv")
-INPUT_SENTRY = os.path.join(
-    os.getenv("SENTRY_DATA"), "sentry/proc/RR2107_sentry613_processed.csv")
+def get_bathy(rsamp=0.5):
+    """Get and window the bathy file."""
+    bathy_file = os.path.join(os.getenv("SENTRY_DATA"),
+                              "bathy/proc/ridge.txt")
+    bathy = pd.read_table(bathy_file, names=["long", "lat", "depth"]).dropna()
+    return bathy.sample(frac=rsamp, random_state=1)
 
-# Params
-CHIMA = (27.407489, -111.289893)
-CHIMB = (27.412645, -111.386915)
-AX, AY, ZN, ZL = utm.from_latlon(CHIMA[0], CHIMA[1])
-BX, BY, _, _ = utm.from_latlon(CHIMB[0], CHIMB[1])
-RIDGE = utm.to_latlon((AX + BX) / 2., (AY + BY) / 2., ZN, ZL)
 
+def create_2d_plot(x, y, c, cmin=None, cmax=None, cmap="Inferno", s=5, o=0.7, cbar_loc=-0.1, name="data", cbar_name="data"):
+    """Wrapper for defining 2D plotly scatter plot."""
+    return go.Scatter(x=x,
+                      y=y,
+                      mode="markers",
+                      marker=dict(size=s,
+                                  color=c,
+                                  opacity=o,
+                                  cmin=cmin,
+                                  cmax=cmax,
+                                  colorscale=cmap,
+                                  colorbar=dict(thickness=10, x=cbar_loc, title=cbar_name)),
+                      name=name)
+
+
+def create_3d_plot(x, y, z, c, cmin=None, cmax=None, cmap="Inferno", s=5, o=0.7, cbar_loc=-0.1, name="data", cbar_name="data"):
+    """Wrapper for defining 3d plotly scatter plot."""
+    return go.Scatter3d(x=x,
+                        y=y,
+                        z=z,
+                        mode="markers",
+                        marker=dict(size=s,
+                                    color=c,
+                                    opacity=o,
+                                    cmin=cmin,
+                                    cmax=cmax,
+                                    colorscale=cmap,
+                                    colorbar=dict(thickness=10, x=cbar_loc, title=cbar_name)),
+                        name=name)
+
+
+SENTRY_NOPP = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                           "transect/sentry_nopp.csv")
+BOTTLES = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                       "transect/bottle_gga_nh4.csv")
+ROSETTE_SAGE = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                            "transect/rosette_sage_proc.csv")
+
+# Which analyses to run, save, or visualize
+GLOBAL_CORRELATION = True
+LOCAL_CORRELATION = True
+LOCAL_CORR_WINDOW = 15  # minutes
+ST_PLOTS = True
+
+# For 2d plots, what dimension to plot on x-axis
+OVER_TIME = True
+OVER_DISTANCE = True
+OVER_LONGITUDE = True
+OVER_LATITUDE = True
+
+# What variables to compare
+SENTRY_NOPP_VARS = ["O2", "obs", "nopp_fundamental", "dorpdt",
+                    "potential_temp", "practical_salinity", "depth"]
+SENTRY_NOPP_LABELS = ["O2", "OBS", "NOPP Inverse Fundamental", "dORPdt",
+                      "Potential Temperature", "Practical Salinity", "Depth"]
+ROSETTE_SAGE_VARS = ["beam_attenuation", "o2_umol_kg",
+                     "sage_methane_ppm", "pot_temp_C_its90", "prac_salinity", "depth_m"]
+ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
+                       "SAGE Methane (ppm)", "Potential Temperature",
+                       "Practical Salinity", "Depth"]
+
+# Whether to visualize the contents of each input file
+VISUALIZE_SENTRY_NOPP = False
+VISUALIZE_ROSETTE_SAGE = False
+VISUALIZE_ALL_PLATFORMS = True
+VISUALIZE_ROSETTE_SAGE_AND_BOTTLES = False
 
 if __name__ == "__main__":
-    """Get the Rosette data for each transect leg.
-    Strip the ascent and descent for the Rosette.
-    Strip where the SAGE stops functioning."""
-    ctd_df = pd.read_csv(INPUT_ROSETTE)
-    ctd_df.loc[:, "t"] = ctd_df["sys_time"]
-    ctd_df['t'] = ctd_df['t'].astype(np.int32)
-    ctd_df["datetime"] = pd.to_datetime(
-        ctd_df["datetime"], format="%Y-%m-%d %H:%M:%S")
-    ctd_df.sort_index(ascending=False)
+    # Get all of the data
+    scc_df = pd.read_csv(SENTRY_NOPP)
+    scc_df['timestamp'] = pd.to_datetime(scc_df['timestamp'])
+    bott_df = pd.read_csv(BOTTLES)
+    bott_df['datetime'] = pd.to_datetime(bott_df['datetime'])
+    ros_df = pd.read_csv(ROSETTE_SAGE)
+    ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
 
-    # Leg 1
-    ctd1_df = ctd_df[ctd_df["cast_name"] == "CTD-10"]
-    ctd1_df = ctd1_df[(ctd1_df["t"] > 1638227762) &
-                      (ctd1_df["t"] < 1638253808)]
-    # Leg 2
-    ctd2_df = ctd_df[ctd_df["cast_name"] == "CTD-11"]
-    ctd2_df = ctd2_df[(ctd2_df["t"] > 1638263036) & (
-        ctd2_df["t"] < 1638270664)]
+    # Set up plotting axes meta data
+    plot_xlabels_ros = []
+    plot_xlabels_bott = []
+    plot_xlabels_scc = []
+    plot_xlabel_titles = []
+    if OVER_TIME is True:
+        plot_xlabels_ros.append("datetime")
+        plot_xlabels_bott.append("datetime")
+        plot_xlabels_scc.append("timestamp")
+        plot_xlabel_titles.append("Time")
+    if OVER_DISTANCE is True:
+        plot_xlabels_ros.append("ridge_distance")
+        plot_xlabels_bott.append("ridge_distance")
+        plot_xlabels_scc.append("ridge_distance")
+        plot_xlabel_titles.append("Distance from Ridge (m)")
+    if OVER_LATITUDE is True:
+        plot_xlabels_ros.append("usbl_lat")
+        plot_xlabels_bott.append("lat")
+        plot_xlabels_scc.append("lat")
+        plot_xlabel_titles.append("Latitude")
+    if OVER_LONGITUDE is True:
+        plot_xlabels_ros.append("usbl_lon")
+        plot_xlabels_bott.append("lon")
+        plot_xlabels_scc.append("lon")
+        plot_xlabel_titles.append("Longitude")
 
-    """Prepare the SAGE dataframes to apply the correct
-        timestamps based on logbook."""
-    # Leg 1
-    sage1_df = pd.read_table(INPUT_SAGE_LEG1, delimiter=",", usecols=[
-        0, 2], names=["insttime", "sage_methane"])
-    sage1_df = sage1_df.dropna()
-    sage1_df = sage1_df[sage1_df["sage_methane"] >= 0.0]
-    sage1_df.loc[:, "sage_methane_ppm"] = sage1_df["sage_methane"]
-    sage1_df.loc[:, 'timestamp'] = pd.to_datetime(
-        sage1_df["insttime"], format="%Y%m%dT%H%M%S")
-    # time on 11.29.2021 22:42:42
-    # time off 11.30.2021 07:00:04
-    t1_start = pd.Timestamp("2021-11-29 22:42:42")
-    t1_delt = t1_start - sage1_df["timestamp"].values[0]
-    sage1_df.loc[:, 'timestamp'] = [x + t1_delt for x in sage1_df["timestamp"]]
-    sage1_df.loc[:, "t"] = (sage1_df["timestamp"] -
-                            pd.Timestamp("1970-01-01")) // pd.Timedelta("1s")
-    sage1_df['t'] = sage1_df['t'].astype(np.int32)
-    sage1_df = sage1_df.drop_duplicates(subset="t")
+    # Create a bathy plot
+    bathy = get_bathy(rsamp=0.02)
+    bathy_plot = go.Scatter(x=bathy.long,
+                            y=bathy.lat,
+                            mode="markers",
+                            marker=dict(size=8,
+                                        color=bathy.depth,
+                                        opacity=0.8,
+                                        colorscale="Viridis",
+                                        colorbar=dict(thickness=10, x=-0.2)),
+                            name="Bathy")
+    x, y, _, _ = utm.from_latlon(bathy.lat.values, bathy.long.values)
+    bathy_plot_3d = go.Mesh3d(x=x, y=y, z=bathy.depth,
+                              intensity=bathy.depth,
+                              colorscale='Viridis',
+                              opacity=0.50,
+                              name="Bathy")
 
-    # Leg 2
-    sage2_df = pd.read_table(INPUT_SAGE_LEG2, delimiter=",", usecols=[
-        0, 2], names=["insttime", "sage_methane"])
-    sage2_df = sage2_df.dropna()
-    sage2_df = sage2_df[(sage2_df["sage_methane"] >= 0.0025)]
-    sage2_df.loc[:, "sage_methane_ppm"] = sage2_df["sage_methane"]
-    sage2_df.loc[:, 'timestamp'] = pd.to_datetime(
-        sage2_df["insttime"], format="%Y%m%dT%H%M%S")
-    # time on 11.30.2021 08:32:03
-    # time off 11.30.2021 12:49:45
-    t2_start = pd.Timestamp("2021-11-30 08:32:03")
-    t2_delt = t2_start - sage2_df["timestamp"].values[0]
-    sage2_df.loc[:, 'timestamp'] = [x + t2_delt for x in sage2_df["timestamp"]]
-    sage2_df.loc[:, "t"] = (sage2_df["timestamp"] -
-                            pd.Timestamp("1970-01-01")) // pd.Timedelta("1s")
-    sage2_df['t'] = sage2_df['t'].astype(np.int32)
-    sage2_df = sage2_df.drop_duplicates(subset="t")
+    if VISUALIZE_ROSETTE_SAGE_AND_BOTTLES is True:
+        # Only grab the second leg of the transect
+        temp_ros_df = ros_df[ros_df['datetime'] >
+                             pd.Timestamp("2021-11-30 08:32:03")]
+        # Create 2D plots
+        for rx, bx, tx in zip(plot_xlabels_ros, plot_xlabels_bott, plot_xlabel_titles):
+            plt.scatter(
+                temp_ros_df[rx], temp_ros_df["sage_methane_ppm"], label="SAGE")
+            plt.scatter(bott_df[bx], bott_df["GGA Methane"],
+                        label="GGA, Raw PPM")
+            plt.scatter(
+                bott_df[bx], bott_df["ch4_ppm_corr_05"], label="GGA, 0.05 Eff.")
+            plt.scatter(
+                bott_df[bx], bott_df["ch4_ppm_corr_15"], label="GGA, 0.15 Eff.")
+            plt.vlines(bott_df[bx], ymin=bott_df["GGA Methane"],
+                       ymax=bott_df["ch4_ppm_corr_05"], color="blue", label="GGA Range")
+            plt.xlabel(tx)
+            plt.ylabel("Methane, PPM")
+            plt.legend()
+            pltname = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                   f"transect/figures/gga_sage_over_{rx}.png")
+            plt.savefig(pltname)
+            plt.close()
 
-    """Merge CTD and HCF legs"""
-    if len(sage1_df) < len(ctd1_df):
-        interpy = interp1d(
-            sage1_df['t'], sage1_df['sage_methane_ppm'], bounds_error=False)
-        ctd1_df.loc[:, "sage_methane_ppm"] = interpy(ctd1_df["t"])
-    else:
-        ctd1_df = ctd1_df.merge(
-            sage1_df[["t", "sage_methane_ppm"]], how="left", on="t")
-    ctd1_df.set_index("datetime", inplace=True)
+            fig, ax1 = plt.subplots()
+            ax2 = ax1.twinx()
+            ax1.set_xlabel(tx)
+            ax1.set_ylabel('Methane, PPM', color="blue")
+            ax1.scatter(
+                temp_ros_df[rx], temp_ros_df["sage_methane_ppm"], label="HCF", c="cyan")
+            ax1.vlines(x=bott_df[bx], ymin=bott_df["GGA Methane"],
+                       ymax=bott_df["ch4_ppm_corr_05"], color="blue", label="GGA Range")
+            ax1.scatter(x=bott_df[bx], y=bott_df["GGA Methane"],
+                        color="blue", label="GGA Range")
+            ax1.scatter(
+                x=bott_df[bx], y=bott_df["ch4_ppm_corr_05"], color="blue", label="GGA Range")
+            ax1.tick_params(axis='y', labelcolor="blue")
+            ax2.set_ylabel("NH4, nM", color="orange")
+            ax2.scatter(x=bott_df[bx], y=bott_df["[NH4] (nM)"],
+                        label="NH4", color="orange")
+            ax2.tick_params(axis='y', labelcolor="orange")
+            fig.tight_layout()
+            pltname = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                   f"transect/figures/nh4_gga_sage_over_{rx}.png")
+            plt.savefig(pltname)
+            plt.close()
 
-    if len(sage2_df) < len(ctd2_df):
-        interpy = interp1d(
-            sage2_df['t'], sage2_df['sage_methane_ppm'], bounds_error=False)
-        ctd2_df.loc[:, "sage_methane_ppm"] = interpy(ctd2_df["t"])
-    else:
-        ctd2_df = ctd2_df.merge(
-            sage2_df[["t", "sage_methane_ppm"]], how="left", on="t")
-    ctd2_df.set_index("datetime", inplace=True)
+        # Create spatial plot with methane and nh4 comparisons
+        sage_plot = create_2d_plot(x=temp_ros_df['usbl_lon'],
+                                   y=temp_ros_df['usbl_lat'],
+                                   c=temp_ros_df['sage_methane_ppm'],
+                                   cbar_loc=-0.15,
+                                   name="SAGE Methane (PPM)",
+                                   cbar_name="SAGE")
+        sx, sy, _, _ = utm.from_latlon(
+            temp_ros_df.usbl_lat.values, temp_ros_df.usbl_lon.values)
+        sage_plot_3d = create_3d_plot(x=sx,
+                                      y=sy,
+                                      z=-temp_ros_df['depth_m'],
+                                      c=temp_ros_df['sage_methane_ppm'],
+                                      cbar_loc=-0.15,
+                                      name="SAGE Methane (PPM)",
+                                      cbar_name="SAGE")
 
-    """Combine everything back into one dataframe"""
-    ctd_df = ctd1_df.append(ctd2_df)
-    ctd_df.sort_index(ascending=False)
-    # Add distance metric
-    ctd_df["ridge_distance"] = ctd_df.apply(lambda x: distance(
-        float(RIDGE[0]), float(RIDGE[1]), float(x["usbl_lat"]), float(x["usbl_lon"]))*1000., axis=1)
+        gga_plot = create_2d_plot(x=bott_df['lon'],
+                                  y=bott_df['lat'],
+                                  c=bott_df['GGA Methane'],
+                                  s=20,
+                                  o=1.0,
+                                  name="GGA Raw PPM",
+                                  cbar_name="GGA")
+        gx, gy, _, _ = utm.from_latlon(bott_df.lat.values, bott_df.lon.values)
+        gga_plot_3d = create_3d_plot(x=gx,
+                                     y=gy,
+                                     z=bott_df['depth'],
+                                     c=bott_df['GGA Methane'],
+                                     s=20,
+                                     o=1.0,
+                                     name="GGA Raw PPM",
+                                     cbar_name="GGA")
 
-    """Save the dataframe"""
-    ctd_fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             "transect/rosette_sage_proc.csv")
-    print(f"Saving Rosette dataframe to {ctd_fname}")
-    ctd_df.to_csv(ctd_fname)
+        nh4_plot = create_2d_plot(x=bott_df['lon'],
+                                  y=bott_df['lat'],
+                                  c=bott_df['[NH4] (nM)'],
+                                  s=20,
+                                  o=1.0,
+                                  name="NH4 (nM)",
+                                  cbar_name="NH4")
+        nh4_plot_3d = create_3d_plot(x=gx,
+                                     y=gy,
+                                     z=bott_df['depth'],
+                                     c=bott_df['[NH4] (nM)'],
+                                     s=20,
+                                     o=1.0,
+                                     name="NH4 (nM)",
+                                     cbar_name="NH4")
 
+        gga_fig = go.Figure(
+            data=[bathy_plot, sage_plot, gga_plot], layout_title_text="SAGE and GGA")
+        gga_fig.update_yaxes(scaleanchor="x", scaleratio=1)
+        gga_fig.write_html(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), "transect/figures/gga_sage_bathy.html"))
+        gga_fig.write_image(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), "transect/figures/gga_sage_bathy.png"), width=1500)
 
-    """Create a GGA and NH4 frame of reference"""
-    bott_df = pd.read_table(INPUT_BOTTLES, delimiter=",")
-    bott_df["bottle_pos"] = bott_df["bottle_pos"].astype(np.int32)
-    print(bott_df.columns)
-    gga_df = pd.read_table(INPUT_GGA, delimiter=",")
-    gga_df["CTD Bottle #"] = gga_df["CTD Bottle #"].astype(np.int32)
-    print(gga_df.columns)
-    gga_df.loc[:, 'ch4_ppm_corr_05'] = gga_df["GGA Methane"] / 0.05
-    gga_df.loc[:, 'ch4_ppm_corr_15'] = gga_df["GGA Methane"] / 0.15
-    # find the right bottles
-    bott_df = bott_df[bott_df["cast_name"] == "CTD-11"]
-    bott_df = bott_df.merge(gga_df, left_on="bottle_pos",
-                            right_on="CTD Bottle #", how="outer")
-    bott_df = bott_df.dropna(subset=["CTD Salinity"])
-    nh4_df = pd.read_table(INPUT_NH4, delimiter=",")
-    nh4_df = nh4_df[nh4_df["Cast"] == 11]
-    nh4_df["Bottle #"] = nh4_df["Bottle #"].astype(np.int32)
-    bott_df = bott_df.merge(nh4_df, left_on="bottle_pos",
-                            right_on="Bottle #", how="outer")
-    bott_df = bott_df.dropna(subset=["CTD Salinity"])
-    bott_df["datetime"] = pd.to_datetime(bott_df["datetime"])
-    print(bott_df)
-    bott_fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                              "transect/bottle_gga_nh4.csv")
-    print(f"Saving GGA, NH4, and Bottle dataframe to {bott_fname}")
+        gga_fig = go.Figure(
+            data=[bathy_plot_3d, sage_plot_3d, gga_plot_3d], layout_title_text="SAGE and GGA", layout_scene_aspectmode="data")
+        gga_fig.write_html(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), "transect/figures/gga_sage_bathy_3d.html"))
+
+        nh4_fig = go.Figure(
+            data=[bathy_plot, sage_plot, nh4_plot], layout_title_text="SAGE and NH4")
+        nh4_fig.update_yaxes(scaleanchor="x", scaleratio=1)
+        nh4_fig.write_html(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), "transect/figures/nh4_sage_bathy.html"))
+        nh4_fig.write_image(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), "transect/figures/nh4_sage_bathy.png"), width=1500)
+
+        nh4_fig = go.Figure(
+            data=[bathy_plot_3d, sage_plot_3d, nh4_plot_3d], layout_title_text="SAGE and NH4", layout_scene_aspectmode="data")
+        nh4_fig.write_html(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), "transect/figures/nh4_sage_bathy_3d.html"))
+
+    if VISUALIZE_ROSETTE_SAGE is True:
+        sx, sy, _, _ = utm.from_latlon(
+            ros_df.usbl_lat.values, ros_df.usbl_lon.values)
+
+        # create 2D plots
+        for rx, tx in zip(plot_xlabels_ros, plot_xlabel_titles):
+            fig = make_subplots(rows=len(ROSETTE_SAGE_VARS), cols=1, shared_xaxes=True,
+                                subplot_titles=tuple(ROSETTE_SAGE_LABELS))
+            for i, v in enumerate(ROSETTE_SAGE_VARS):
+                var = ros_df[v]
+                cmin, cmax = np.nanpercentile(
+                    var, 10), np.nanpercentile(var, 90)
+                fig.add_trace(go.Scatter(x=ros_df[rx], y=var), row=i+1, col=1)
+            fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                            f"transect/figures/rosette_sage_{tx}.png"), width=1500)
+            fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                           f"transect/figures/rosette_sage_{tx}.html"))
+
+        # create spatial plots
+        for i, v in enumerate(ROSETTE_SAGE_VARS):
+            var = ros_df[v]
+            cmin, cmax = np.nanpercentile(var, 10), np.nanpercentile(var, 90)
+            var_plot = create_2d_plot(x=ros_df['usbl_lon'],
+                                      y=ros_df['usbl_lat'],
+                                      c=var,
+                                      cmin=cmin,
+                                      cmax=cmax,
+                                      name=ROSETTE_SAGE_LABELS[i],
+                                      cbar_name=ROSETTE_SAGE_LABELS[i])
+            f = go.Figure(data=[bathy_plot, var_plot],
+                          layout_title_text=ROSETTE_SAGE_LABELS[i])
+            f.update_yaxes(scaleanchor="x", scaleratio=1)
+            f.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                       f"transect/figures/rosette_sage_bathy_{v}.png"), width=1500)
+
+            var_plot_3d = create_3d_plot(x=sx,
+                                         y=sy,
+                                         z=-ros_df['depth_m'],
+                                         c=var,
+                                         cmin=cmin,
+                                         cmax=cmax,
+                                         name=ROSETTE_SAGE_LABELS[i],
+                                         cbar_name=ROSETTE_SAGE_LABELS[i])
+            f = go.Figure(data=[bathy_plot_3d, var_plot_3d],
+                          layout_title_text=ROSETTE_SAGE_LABELS[i],
+                          layout_scene_aspectmode="data")
+            f.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                      f"transect/figures/rosette_sage_bathy_{v}.html"))
+
+    if VISUALIZE_SENTRY_NOPP is True:
+        sx, sy, _, _ = utm.from_latlon(
+            scc_df.lat.values, scc_df.lon.values)
+
+        # create 2D plots
+        for rx, tx in zip(plot_xlabels_scc, plot_xlabel_titles):
+            fig = make_subplots(rows=len(SENTRY_NOPP_VARS), cols=1, shared_xaxes=True,
+                                subplot_titles=tuple(SENTRY_NOPP_LABELS))
+            for i, v in enumerate(SENTRY_NOPP_VARS):
+                var = scc_df[v]
+                if v is not "obs":
+                    cmin, cmax = np.nanpercentile(
+                        var, 10), np.nanpercentile(var, 90)
+                else:
+                    cmin, cmax = 0.0, 0.2
+                fig.add_trace(go.Scatter(x=scc_df[rx], y=var), row=i+1, col=1)
+            fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                            f"transect/figures/sentry_nopp_{tx}.png"), width=1500)
+            fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                           f"transect/figures/sentry_nopp_{tx}.html"))
+
+        # create spatial plots
+        for i, v in enumerate(SENTRY_NOPP_VARS):
+            var = scc_df[v]
+            if v is not "obs":
+                cmin, cmax = np.nanpercentile(
+                    var, 10), np.nanpercentile(var, 90)
+            else:
+                cmin, cmax = 0.0, 0.2
+            var_plot = create_2d_plot(x=scc_df['lon'],
+                                      y=scc_df['lat'],
+                                      c=var,
+                                      cmin=cmin,
+                                      cmax=cmax,
+                                      name=SENTRY_NOPP_LABELS[i],
+                                      cbar_name=SENTRY_NOPP_LABELS[i])
+            f = go.Figure(data=[bathy_plot, var_plot],
+                          layout_title_text=SENTRY_NOPP_LABELS[i])
+            f.update_yaxes(scaleanchor="x", scaleratio=1)
+            f.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                       f"transect/figures/sentry_nopp_bathy_{v}.png"), width=1500)
+
+            var_plot_3d = create_3d_plot(x=sx,
+                                         y=sy,
+                                         z=-scc_df['depth'],
+                                         c=var,
+                                         cmin=cmin,
+                                         cmax=cmax,
+                                         name=SENTRY_NOPP_LABELS[i],
+                                         cbar_name=SENTRY_NOPP_LABELS[i])
+            f = go.Figure(data=[bathy_plot_3d, var_plot_3d],
+                          layout_title_text=SENTRY_NOPP_LABELS[i],
+                          layout_scene_aspectmode="data")
+            f.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                      f"transect/figures/sentry_nopp_bathy_{v}.html"))
+
+    if VISUALIZE_ALL_PLATFORMS is True:
+        # Create comparison plots
+        pass

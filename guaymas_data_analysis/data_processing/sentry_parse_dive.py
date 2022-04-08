@@ -14,16 +14,16 @@ import pdb
 
 
 # Imports from utility files
-from sentry_data_analysis.utils.data_utils import \
+from guaymas_data_analysis.utils.data_utils import \
     calculate_northing_easting_from_lat_lon, \
     convert_oceanographic_measurements, detect_ascent_descent
-from sentry_data_analysis.utils.viz_utils import get_bathy, \
+from guaymas_data_analysis.utils.viz_utils import get_bathy, \
     plot_bathy_underlay, plot_sites_overlay, plot_and_save_science_data
-from sentry_data_analysis.utils.metadata_utils import calibrate_nopp, \
+from guaymas_data_analysis.utils.metadata_utils import calibrate_nopp, \
     sentry_filename_by_dive, \
     nopp_filename_by_dive, hcf_filename_by_dive, sentry_site_by_dive, \
     extent_by_site, calibrate_nopp
-from sentry_data_analysis.utils import REFERENCE, EAST_REFERENCE, \
+from guaymas_data_analysis.utils import REFERENCE, EAST_REFERENCE, \
     NORTH_REFERENCE, ZONE_LETT, ZONE_NUM, Extent
 
 ############

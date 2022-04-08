@@ -27,11 +27,11 @@ from datetime import timezone
 import pdb
 
 # Imports for current data processing
-from sentry_data_analysis.utils.viz_utils import plot_and_save_science_data, \
+from guaymas_data_analysis.utils.viz_utils import plot_and_save_science_data, \
     plot_and_save_advection_video
-from sentry_data_analysis.utils.current_utils import CurrMag, CurrHead, \
+from guaymas_data_analysis.utils.current_utils import CurrMag, CurrHead, \
     TimeSeriesInterpolate
-from sentry_data_analysis.utils.metadata_utils import \
+from guaymas_data_analysis.utils.metadata_utils import \
     sentry_output_by_dive, sentry_site_by_dive, extent_by_site, \
     sentry_anom_by_dive, sentry_phase_by_dive_and_time, \
     sentry_detections_by_dive, tiltmeter_output_by_deployment, \

@@ -10,9 +10,9 @@ from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from sentry_data_analysis.utils.current_utils import CurrMag, CurrHead, \
+from guaymas_data_analysis.utils.current_utils import CurrMag, CurrHead, \
     tidalfunction, TimeSeriesInterpolate
-from sentry_data_analysis.utils.metadata_utils import \
+from guaymas_data_analysis.utils.metadata_utils import \
     tiltmeter_filename_by_deployment, \
     tiltmeter_time_by_deployment, \
     tiltmeter_time_exclude_by_deployment, \
