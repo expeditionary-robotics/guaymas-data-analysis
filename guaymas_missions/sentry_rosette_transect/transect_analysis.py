@@ -10,6 +10,19 @@ from plotly.subplots import make_subplots
 from itertools import combinations
 
 
+def extract_trends(df, x, y, fit="polyfit", inplace=True):
+    """Find the trends relationship between inputs and remove."""
+    if fit is "polyfit":
+        z = np.polyfit(df[x].values, df[y].values, 1)
+        p = np.poly1d(z)
+        df[f"{y}_bkgnd_{x}"] = p(df[x].values)
+        df[f"{y}_anom_{x}"] = df[y].values - df[f"{y}_bkgnd_{x}"].values
+        return df
+    else:
+        print("Currently only supporting polyfit removal.")
+        return df
+
+
 # Datasets
 SENTRY_NOPP = os.path.join(os.getenv("SENTRY_OUTPUT"),
                            "transect/sentry_nopp.csv")
@@ -30,6 +43,12 @@ ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
                        "Practical Salinity", "Depth"]
 
 # Analyses
+REMOVE_DEPTH = True
+SENTRY_DEPTH_TARGET_VARS = ["O2", "potential_temp", "practical_salinity"]
+SENTRY_DEPTH_TARGET_LABELS = ["O2", "Potential Temperature", "Practical Salinity"]
+ROSETTE_DEPTH_TARGET_VARS = ["o2_umol_kg", "pot_temp_C_its90", "prac_salinity"]
+ROSETTE_DEPTH_TARGET_LABELS = ["O2", "Potential Temperature", "Practical Salinity"]
+
 GENERATE_ST_PLOTS = False
 GLOBAL_CORRELATION = False
 LOCAL_CORRELATION = True
@@ -43,6 +62,16 @@ if __name__ == '__main__':
     bott_df['datetime'] = pd.to_datetime(bott_df['datetime'])
     ros_df = pd.read_csv(ROSETTE_SAGE)
     ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
+
+    if REMOVE_DEPTH is True:
+        for v in SENTRY_DEPTH_TARGET_VARS:
+            scc_df = extract_trends(scc_df, 'depth', v)
+        SENTRY_NOPP_VARS = SENTRY_NOPP_VARS + [f"{v}_anom_depth" for v in SENTRY_DEPTH_TARGET_VARS]
+        SENTRY_NOPP_LABELS = SENTRY_NOPP_LABELS + [f"{v} Depth Corrected" for v in SENTRY_DEPTH_TARGET_LABELS]
+        for v in ROSETTE_DEPTH_TARGET_VARS:
+            ros_df = extract_trends(ros_df, 'depth_m', v)
+        ROSETTE_SAGE_VARS = ROSETTE_SAGE_VARS + [f"{v}_anom_depth_m" for v in ROSETTE_DEPTH_TARGET_VARS]
+        ROSETTE_SAGE_LABELS = ROSETTE_SAGE_LABELS + [f"{v} Depth Corrected" for v in ROSETTE_DEPTH_TARGET_LABELS]
 
     if GENERATE_ST_PLOTS is True:
         plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
