@@ -1,55 +1,19 @@
 """Creates advanced data products for transect analysis."""
 
-import os
-import utm
 import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
-
-
-def distance(lat1, lon1, lat2, lon2):
-    """Compute distance between two points."""
-    # approximate radius of earth in km
-    R = 6373.0
-
-    lat1 = np.radians(lat1)
-    lon1 = np.radians(lon1)
-    lat2 = np.radians(lat2)
-    lon2 = np.radians(lon2)
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-
-    return R * c
-
+from transect_utils import get_transect_input_paths, \
+    get_transect_sentry_nopp_path, get_transect_bottles_path, \
+    get_transect_rosette_sage_path, RIDGE
+from guaymas_data_analysis.utils.data_utils import distance
 
 # Import data targets for the transect
-INPUT_NOPP = os.path.join(os.getenv("SENTRY_DATA"),
-                          "nopp/raw/N1-sentry613.txt")
-INPUT_SAGE_LEG1 = os.path.join(os.getenv(
-    "SENTRY_DATA"), "hcf/raw/HCF_205_Cast10_TransectExplorationLeg1.csv")
-INPUT_SAGE_LEG2 = os.path.join(os.getenv(
-    "SENTRY_DATA"), "hcf/raw/HCF_207_Cast11_TransectExplorationLeg2.csv")
-INPUT_ROSETTE = os.path.join(
-    os.getenv("SENTRY_DATA"), "ctd/proc/proc_transect.csv")
-INPUT_GGA = os.path.join(os.getenv("SENTRY_DATA"),
-                         "bottles/proc/gga_transect.csv")
-INPUT_NH4 = os.path.join(os.getenv("SENTRY_DATA"),
-                         "bottles/proc/nh4_transect.csv")
-INPUT_BOTTLES = os.path.join(
-    os.getenv("SENTRY_DATA"), "ctd/proc/proc_bottles.csv")
-INPUT_SENTRY = os.path.join(
-    os.getenv("SENTRY_DATA"), "sentry/proc/RR2107_sentry613_processed.csv")
-
-# Params
-CHIMA = (27.407489, -111.389893)
-CHIMB = (27.412645, -111.386915)
-AX, AY, ZN, ZL = utm.from_latlon(CHIMA[0], CHIMA[1])
-BX, BY, _, _ = utm.from_latlon(CHIMB[0], CHIMB[1])
-RIDGE = utm.to_latlon((AX + BX) / 2., (AY + BY) / 2., ZN, ZL)
+INPUT_NOPP, INPUT_SAGE_LEG1, INPUT_SAGE_LEG2, INPUT_ROSETTE, INPUT_GGA, \
+    INPUT_NH4, INPUT_BOTTLES, INPUT_SENTRY = get_transect_input_paths()
+OUTPUT_SENTRY_NOPP = get_transect_sentry_nopp_path()
+OUTPUT_BOTTLES = get_transect_bottles_path()
+OUTPUT_ROSETTE_SAGE = get_transect_rosette_sage_path()
 
 
 if __name__ == "__main__":
@@ -137,10 +101,8 @@ if __name__ == "__main__":
         float(RIDGE[0]), float(RIDGE[1]), float(x["usbl_lat"]), float(x["usbl_lon"]))*1000., axis=1)
 
     """Save the dataframe"""
-    ctd_fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             "transect/rosette_sage_proc.csv")
-    print(f"Saving Rosette dataframe to {ctd_fname}")
-    ctd_df.to_csv(ctd_fname)
+    print(f"Saving Rosette dataframe to {OUTPUT_ROSETTE_SAGE}")
+    ctd_df.to_csv(OUTPUT_ROSETTE_SAGE)
 
     """Create a GGA and NH4 frame of reference"""
     bott_df = pd.read_table(INPUT_BOTTLES, delimiter=",")
@@ -163,10 +125,8 @@ if __name__ == "__main__":
     bott_df["datetime"] = pd.to_datetime(bott_df["datetime"])
     bott_df["ridge_distance"] = bott_df.apply(lambda x: distance(
         float(RIDGE[0]), float(RIDGE[1]), float(x["lat"]), float(x["lon"]))*1000., axis=1)
-    bott_fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                              "transect/bottle_gga_nh4.csv")
-    print(f"Saving GGA, NH4, and Bottle dataframe to {bott_fname}")
-    bott_df.to_csv(bott_fname)
+    print(f"Saving GGA, NH4, and Bottle dataframe to {OUTPUT_BOTTLES}")
+    bott_df.to_csv(OUTPUT_BOTTLES)
 
     """Add a distance measure to the Sentry dive"""
     scc_df = pd.read_csv(INPUT_SENTRY)
@@ -176,7 +136,5 @@ if __name__ == "__main__":
     scc_df = scc_df.dropna()
     scc_df["ridge_distance"] = scc_df.apply(lambda x: distance(
         float(RIDGE[0]), float(RIDGE[1]), float(x["lat"]), float(x["lon"]))*1000., axis=1)
-    scc_fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             "transect/sentry_nopp.csv")
-    print(f"Saving Sentry and NOPP dataframe to {scc_fname}")
-    scc_df.to_csv(scc_fname)
+    print(f"Saving Sentry and NOPP dataframe to {OUTPUT_SENTRY_NOPP}")
+    scc_df.to_csv(OUTPUT_SENTRY_NOPP)

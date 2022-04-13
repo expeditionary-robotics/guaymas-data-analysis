@@ -7,6 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
+from transect_utils import get_transect_rosette_sage_path, \
+    get_transect_sentry_nopp_path, get_transect_bottles_path
 
 
 def get_bathy(rsamp=0.5):
@@ -48,12 +50,9 @@ def create_3d_plot(x, y, z, c, cmin=None, cmax=None, cmap="Inferno", s=5, o=0.7,
                         name=name)
 
 
-SENTRY_NOPP = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                           "transect/sentry_nopp.csv")
-BOTTLES = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                       "transect/bottle_gga_nh4.csv")
-ROSETTE_SAGE = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            "transect/rosette_sage_proc.csv")
+SENTRY_NOPP = get_transect_sentry_nopp_path()
+BOTTLES = get_transect_bottles_path()
+ROSETTE_SAGE = get_transect_rosette_sage_path()
 
 # For 2d plots, what dimension to plot on x-axis
 OVER_TIME = True

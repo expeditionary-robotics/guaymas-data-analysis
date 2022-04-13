@@ -8,15 +8,80 @@ import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from itertools import combinations
+from transect_utils import get_transect_bottles_path, \
+    get_transect_rosette_sage_path, get_transect_sentry_nopp_path
+
+
+def compute_global_correlation(df, df_vars, df_labels, fname):
+    """Computes global correlation factor and saves figure."""
+    zr = np.zeros((len(df_vars), len(df_vars)))
+    zp = np.zeros((len(df_vars), len(df_vars)))
+    for i, v in enumerate(df_vars):
+        for j, s in enumerate(df_vars):
+            r, p = stats.pearsonr(df[v].values, df[s].values)
+            zr[i, j] = r
+            zp[i, j] = p
+            # print(f"Rvalue: {r}, Pvalue: {p}, for {v} compared to {s}")
+    fig, ax = plt.subplots()
+    im = ax.imshow(zr, cmap="coolwarm")
+    ax.set_xticks(np.arange(len(df_labels)))
+    ax.set_xticklabels(df_labels)
+    ax.set_yticks(np.arange(len(df_labels)))
+    ax.set_yticklabels(df_labels)
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+             rotation_mode="anchor")
+    # Loop over data dimensions and create text annotations.
+    for i in range(len(df_labels)):
+        for j in range(len(df_labels)):
+            text = ax.text(j, i, np.round(zr[i, j], 1),
+                           ha="center", va="center", color="w")
+    fig.tight_layout()
+    plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"), fname))
+    plt.close()
+
+
+def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
+    """Computes local correlation and saves figures."""
+    pairs = [comb for comb in combinations(df_vars, 2)]
+    fig = make_subplots(rows=len(pairs), cols=1,
+                        shared_xaxes="all", shared_yaxes="all")
+    zim = np.zeros((len(pairs), len(df[df_idx])))
+    for i, pair in enumerate(pairs):
+        rolling_r = df[pair[0]].rolling(
+            window=window, center=True).corr(df[pair[1]])
+        zim[i, :] = rolling_r
+        fig.add_trace(go.Scatter(x=df[df_idx],
+                                 y=rolling_r,
+                                 mode="markers",
+                                 name=f"{pair[0]} vs. {pair[1]}"),
+                      row=i+1,
+                      col=1)
+        fig.add_shape(type="line",
+                      x0=df[df_idx].values[0],
+                      y0=0,
+                      x1=df[df_idx].values[-1],
+                      y1=0,
+                      line=dict(color="gray"),
+                      xref='x',
+                      yref='y',
+                      row=i+1,
+                      col=1)
+    imfig = go.Figure(data=go.Heatmap(z=zim,
+                                      x=df[df_idx],
+                                      y=[f"{p[0]} vs. {p[1]}" for p in pairs],
+                                      colorscale="RdBu_r"))
+    lname = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                         f"transect/figures/{fname}_rolling_correlation.html")
+    fig.write_html(lname)
+    hname = os.path.join(os.getenv("SENTRY_OUTPUT"),
+                         f"transect/figures/{fname}_heat_rolling_correlation.html")
+    imfig.write_html(hname)
 
 
 # Datasets
-SENTRY_NOPP = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                           "transect/sentry_nopp.csv")
-BOTTLES = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                       "transect/bottle_gga_nh4.csv")
-ROSETTE_SAGE = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            "transect/rosette_sage_proc.csv")
+SENTRY_NOPP = get_transect_sentry_nopp_path()
+BOTTLES = get_transect_bottles_path()
+ROSETTE_SAGE = get_transect_rosette_sage_path()
 
 # What variables to compare
 SENTRY_NOPP_VARS = ["O2", "obs", "nopp_fundamental", "dorpdt",
@@ -30,10 +95,10 @@ ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
                        "Practical Salinity", "Depth"]
 
 # Analyses
-GENERATE_ST_PLOTS = False
-GLOBAL_CORRELATION = False
-LOCAL_CORRELATION = True
-CORR_WINDOW = 15  # minutes
+GENERATE_ST_PLOTS = False  # generates salinity-temperature plots
+GLOBAL_CORRELATION = True  # generates a global correlation matrix
+LOCAL_CORRELATION = False  # generates line and heatmaps of rolling correlations
+CORR_WINDOW = 15  # sets the rolling correlation window, minutes
 
 if __name__ == '__main__':
     # Get all of the data
@@ -58,132 +123,16 @@ if __name__ == '__main__':
 
     if GLOBAL_CORRELATION is True:
         # Global Pearson Correlation
-        zr = np.zeros((len(SENTRY_NOPP_VARS), len(SENTRY_NOPP_VARS)))
-        zp = np.zeros((len(SENTRY_NOPP_VARS), len(SENTRY_NOPP_VARS)))
-        for i, v in enumerate(SENTRY_NOPP_VARS):
-            for j, s in enumerate(SENTRY_NOPP_VARS):
-                r, p = stats.pearsonr(scc_df[v].values, scc_df[s].values)
-                zr[i, j] = r
-                zp[i, j] = p
-                # print(f"Rvalue: {r}, Pvalue: {p}, for {v} compared to {s}")
-        fig, ax = plt.subplots()
-        im = ax.imshow(zr, cmap="coolwarm")
-        ax.set_xticks(np.arange(len(SENTRY_NOPP_LABELS)))
-        ax.set_xticklabels(SENTRY_NOPP_LABELS)
-        ax.set_yticks(np.arange(len(SENTRY_NOPP_LABELS)))
-        ax.set_yticklabels(SENTRY_NOPP_LABELS)
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-                 rotation_mode="anchor")
-        # Loop over data dimensions and create text annotations.
-        for i in range(len(SENTRY_NOPP_LABELS)):
-            for j in range(len(SENTRY_NOPP_LABELS)):
-                text = ax.text(j, i, np.round(zr[i, j], 1),
-                               ha="center", va="center", color="w")
-        fig.tight_layout()
-        plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                 f"transect/figures/sentry_nopp_global_corr.png"))
-        plt.close()
-
-        # Global Pearson Correlation
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
-        zr = np.zeros((len(ROSETTE_SAGE_VARS), len(ROSETTE_SAGE_VARS)))
-        zp = np.zeros((len(ROSETTE_SAGE_VARS), len(ROSETTE_SAGE_VARS)))
-        for i, v in enumerate(ROSETTE_SAGE_VARS):
-            for j, s in enumerate(ROSETTE_SAGE_VARS):
-                r, p = stats.pearsonr(ros_df[v].values, ros_df[s].values)
-                zr[i, j] = r
-                zp[i, j] = p
-                # print(f"Rvalue: {r}, Pvalue: {p}, for {v} compared to {s}")
-        fig, ax = plt.subplots()
-        im = ax.imshow(zr, cmap="coolwarm")
-        ax.set_xticks(np.arange(len(ROSETTE_SAGE_LABELS)))
-        ax.set_xticklabels(ROSETTE_SAGE_LABELS)
-        ax.set_yticks(np.arange(len(ROSETTE_SAGE_LABELS)))
-        ax.set_yticklabels(ROSETTE_SAGE_LABELS)
-        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-                 rotation_mode="anchor")
-        # Loop over data dimensions and create text annotations.
-        for i in range(len(ROSETTE_SAGE_LABELS)):
-            for j in range(len(ROSETTE_SAGE_LABELS)):
-                text = ax.text(j, i, np.round(zr[i, j], 1),
-                               ha="center", va="center", color="w")
-        fig.tight_layout()
-        plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                 f"transect/figures/rosette_sage_global_corr.png"))
-        plt.close()
+        compute_global_correlation(scc_df, SENTRY_NOPP_VARS, SENTRY_NOPP_LABELS,
+                                   "transect/figures/sentry_nopp_global_corr.png")
+        compute_global_correlation(ros_df, ROSETTE_SAGE_VARS, ROSETTE_SAGE_LABELS,
+                                   "transect/figures/rosette_sage_global_corr.png")
 
     if LOCAL_CORRELATION is True:
         r_window_size = 60 * CORR_WINDOW  # seconds
-
-        # Sentry and NOPP
-        pairs = [comb for comb in combinations(SENTRY_NOPP_VARS, 2)]
-        fig = make_subplots(rows=len(pairs), cols=1,
-                            shared_xaxes="all", shared_yaxes="all")
-        zim = np.zeros((len(pairs), len(scc_df["timestamp"])))
-        for i, pair in enumerate(pairs):
-            rolling_r = scc_df[pair[0]].rolling(
-                window=r_window_size, center=True).corr(scc_df[pair[1]])
-            zim[i, :] = rolling_r
-            fig.add_trace(go.Scatter(x=scc_df["timestamp"],
-                                     y=rolling_r,
-                                     mode="markers",
-                                     name=f"{pair[0]} vs. {pair[1]}"),
-                          row=i+1,
-                          col=1)
-            fig.add_shape(type="line",
-                          x0=scc_df["timestamp"].values[0],
-                          y0=0,
-                          x1=scc_df["timestamp"].values[-1],
-                          y1=0,
-                          line=dict(color="gray"),
-                          xref='x',
-                          yref='y',
-                          row=i+1,
-                          col=1)
-        imfig = go.Figure(data=go.Heatmap(z=zim,
-                                          x=scc_df["timestamp"],
-                                          y=[f"{p[0]} vs. {p[1]}" for p in pairs],
-                                          colorscale="RdBu_r"))
-        fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             f"transect/figures/sentry_nopp_rolling_correlation.html")
-        fig.write_html(fname)
-        fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             f"transect/figures/sentry_nopp_heat_rolling_correlation.html")
-        imfig.write_html(fname)
-
-        # Rosette and SAGE
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
-        pairs = [comb for comb in combinations(ROSETTE_SAGE_VARS, 2)]
-        fig = make_subplots(rows=len(pairs), cols=1,
-                            shared_xaxes="all", shared_yaxes="all")
-        zim = np.zeros((len(pairs), len(ros_df["datetime"])))
-        for i, pair in enumerate(pairs):
-            rolling_r = ros_df[pair[0]].rolling(
-                window=r_window_size, center=True).corr(ros_df[pair[1]])
-            zim[i, :] = rolling_r
-            fig.add_trace(go.Scatter(x=ros_df["datetime"],
-                                     y=rolling_r,
-                                     mode="markers",
-                                     name=f"{pair[0]} vs. {pair[1]}"),
-                          row=i+1,
-                          col=1)
-            fig.add_shape(type="line",
-                          x0=ros_df["datetime"].values[0],
-                          y0=0,
-                          x1=ros_df["datetime"].values[-1],
-                          y1=0,
-                          line=dict(color="gray"),
-                          xref='x',
-                          yref='y',
-                          row=i+1,
-                          col=1)
-        imfig = go.Figure(data=go.Heatmap(z=zim,
-                                          x=ros_df["datetime"],
-                                          y=[f"{p[0]} vs. {p[1]}" for p in pairs],
-                                          colorscale="RdBu_r"))
-        fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             f"transect/figures/rosette_sage_rolling_correlation.html")
-        fig.write_html(fname)
-        fname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                             f"transect/figures/rosette_sage_heat_rolling_correlation.html")
-        imfig.write_html(fname)
+        compute_local_correlation(scc_df, "timestamp", SENTRY_NOPP_VARS,
+                                  SENTRY_NOPP_LABELS, r_window_size, "sentry_nopp")
+        compute_local_correlation(ros_df, "datetime", ROSETTE_SAGE_VARS,
+                                  ROSETTE_SAGE_LABELS, r_window_size, "rosette_sage")

@@ -165,3 +165,21 @@ def convert_to_latlon(coords, latlon_origin):
         # xy data
         return np.hstack([map_lon.reshape(-1, 1),
                           map_lat.reshape(-1, 1)])
+
+def distance(lat1, lon1, lat2, lon2):
+    """Compute distance in km between two points."""
+    # approximate radius of earth in km
+    R = 6373.0
+
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+    return R * c
