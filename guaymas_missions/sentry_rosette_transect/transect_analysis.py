@@ -41,7 +41,22 @@ def compute_global_correlation(df, df_vars, df_labels, fname):
 
 
 def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
-    """Computes local correlation and saves figures."""
+    """Computes local correlation and saves figures.
+
+    Input:
+        df (dataframe): a 1Hz sampled dataframe of data
+        df_idx (string): timestamp or datastring column name
+        df_vars (list of strings): column names of targets
+        df_labels (list of string): common names of targets
+        window (int): number of seconds in the window
+        fname (string): what to name the output image
+    """
+    # First check that the dataframe is 1Hz sampled
+    sampled_at_1hz = all(df[df_idx].diff()[1:500] == np.timedelta64(1, 's')) == True
+    if not sampled_at_1hz:
+        print("ERROR: data is not sampled at 1Hz for averaging purposes")
+        return
+    # If properly sampled, continued with window correlation check
     pairs = [comb for comb in combinations(df_vars, 2)]
     fig = make_subplots(rows=len(pairs), cols=1,
                         shared_xaxes="all", shared_yaxes="all")
@@ -96,8 +111,8 @@ ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
 
 # Analyses
 GENERATE_ST_PLOTS = False  # generates salinity-temperature plots
-GLOBAL_CORRELATION = True  # generates a global correlation matrix
-LOCAL_CORRELATION = False  # generates line and heatmaps of rolling correlations
+GLOBAL_CORRELATION = False  # generates a global correlation matrix
+LOCAL_CORRELATION = True  # generates line and heatmaps of rolling correlations
 CORR_WINDOW = 15  # sets the rolling correlation window, minutes
 
 if __name__ == '__main__':

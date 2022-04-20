@@ -28,12 +28,12 @@ BX, BY, _, _ = utm.from_latlon(CHIMB[0], CHIMB[1])
 RIDGE = utm.to_latlon((AX + BX) / 2., (AY + BY) / 2., ZN, ZL)
 
 # Processed data file targets for transect analysis
-SENTRY_NOPP = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                           "transect/sentry_nopp.csv")
-BOTTLES = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                       "transect/bottle_gga_nh4.csv")
-ROSETTE_SAGE = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            "transect/rosette_sage_proc.csv")
+SENTRY_NOPP = os.path.join(os.getenv("SENTRY_DATA"),
+                           "missions/transect/sentry_nopp.csv")
+BOTTLES = os.path.join(os.getenv("SENTRY_DATA"),
+                       "missions/transect/bottle_gga_nh4.csv")
+ROSETTE_SAGE = os.path.join(os.getenv("SENTRY_DATA"),
+                            "missions/transect/rosette_sage_proc.csv")
 
 def get_transect_input_paths():
     """Returns the NOPP, SAGE1, SAGE2, Rosette, GGA, NH4, Bottles, and Sentry filepaths."""
