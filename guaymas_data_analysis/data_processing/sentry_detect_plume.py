@@ -7,10 +7,10 @@ import numpy as np
 
 import pdb
 
-from sentry_data_analysis.utils.pseudosensor_utils import BinarySensor, SENTRY_DIVE_ALL_KEYS
-from sentry_data_analysis.utils.viz_utils import get_bathy, mesh_obj, plot_and_save_detections
-from sentry_data_analysis.utils import Extent
-from sentry_data_analysis.utils.metadata_utils import sentry_anom_by_dive, \
+from guaymas_data_analysis.utils.pseudosensor_utils import BinarySensor, SENTRY_DIVE_ALL_KEYS
+from guaymas_data_analysis.utils.viz_utils import get_bathy, mesh_obj, plot_and_save_detections
+from guaymas_data_analysis.utils import Extent
+from guaymas_data_analysis.utils.metadata_utils import sentry_anom_by_dive, \
     sentry_detections_by_dive
 
 # If you want to visualize plots

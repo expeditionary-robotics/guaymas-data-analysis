@@ -23,6 +23,7 @@ def calculate_northing_easting_from_lat_lon(df: pd.DataFrame, refeasting=None, r
         refnorthing = np.nanmin(y)
     df.loc[:, "northing"] = y - refnorthing
 
+
 def convert_oceanographic_measurements(df: pd.DataFrame, vehicle="sentry"):
     """calculates absolute and practical salinity, potential temp, and
     potential density. assumes needed keys exist in the dataframe.
@@ -35,7 +36,8 @@ def convert_oceanographic_measurements(df: pd.DataFrame, vehicle="sentry"):
     if vehicle == "sentry":
         required_keys = ["ctd_cond", "ctd_pres", "ctd_temp", "lat", "lon"]
     elif vehicle == "jason":
-        required_keys = ["conductivity", "pressure", "temperature", "lat", "lon"]
+        required_keys = ["conductivity",
+                         "pressure", "temperature", "lat", "lon"]
     else:
         print("Can't convery measurements from this vehicle. Only support sentry and jason inputs.")
         return
@@ -115,13 +117,14 @@ def detect_ascent_descent(
     """
     # HACK: detect ascending / descending based off depth gradient
     # threshold values determined empirically from teske 2016 data
-    ddt_depth = np.gradient(df["depth"].rolling(center=False, window=derivative_window_size).mean())
+    ddt_depth = np.gradient(df["depth"].rolling(
+        center=False, window=derivative_window_size).mean())
 
     state = 0  # 0 = init, 1 = descending, 2 = cruising, 3 = ascending
     start_idx = 0
     end_idx = len(df)
     for idx in range(len(ddt_depth)):
-        rolling_avg = np.mean(ddt_depth[idx : idx + window_width_in_samples])
+        rolling_avg = np.mean(ddt_depth[idx: idx + window_width_in_samples])
         if state == 0:
             if rolling_avg > descent_velocity_threshold:
                 state = 1
@@ -137,6 +140,7 @@ def detect_ascent_descent(
             pass
 
     return start_idx, end_idx
+
 
 def convert_to_latlon(coords, latlon_origin):
     """Allows arbitrary meters-based coordinates to be converted to lat/lon.
@@ -165,3 +169,24 @@ def convert_to_latlon(coords, latlon_origin):
         # xy data
         return np.hstack([map_lon.reshape(-1, 1),
                           map_lat.reshape(-1, 1)])
+
+
+def distance(lat1, lon1, lat2, lon2):
+    """Compute distance in km between two lat-lon points."""
+    # approximate radius of earth in km
+    R = 6373.0
+
+    # convert decimal degrees to radians
+    lat1 = np.radians(lat1)
+    lon1 = np.radians(lon1)
+    lat2 = np.radians(lat2)
+    lon2 = np.radians(lon2)
+
+    # compute distances
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    # apply law of cosines to compute distance
+    a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+    return R * c

@@ -18,6 +18,7 @@ gsw = "*"
 pyyaml = "*"
 kaleido = "*"
 gpytorch = "*"
+pipfile = "*"
 
 [dev-packages]
 

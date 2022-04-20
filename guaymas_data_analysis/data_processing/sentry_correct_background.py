@@ -13,10 +13,10 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 # Local utils file
-from sentry_data_analysis.utils.metadata_utils import sentry_output_by_dive, \
+from guaymas_data_analysis.utils.metadata_utils import sentry_output_by_dive, \
     sentry_site_by_dive, extent_by_site, ctd_output, \
     nopp_filename_by_dive, hcf_filename_by_dive
-from sentry_data_analysis.utils.viz_utils import plot_and_save_science_data
+from guaymas_data_analysis.utils.viz_utils import plot_and_save_science_data
 
 """User defined arguments. These are intended to be set from the command line."""
 # Sentry dive name
