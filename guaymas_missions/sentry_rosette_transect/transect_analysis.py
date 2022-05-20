@@ -126,16 +126,26 @@ ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
                        "Practical Salinity", "Depth"]
 
 # Analyses
-COMPUTE_WITH_SMOOTH = True  # smooth data before analysis
-SMOOTH_OPTION = "rolling_average"  # rolling_averge of butter
-
 REMOVE_DEPTH = True  # compute depth correction
 SENTRY_DEPTH_TARGET_VARS = ["O2", "potential_temp", "practical_salinity"]
 SENTRY_DEPTH_TARGET_LABELS = [
     "O2", "Potential Temperature", "Practical Salinity"]
 ROSETTE_DEPTH_TARGET_VARS = ["o2_umol_kg", "pot_temp_C_its90", "prac_salinity"]
 ROSETTE_DEPTH_TARGET_LABELS = [
-    "O2", "Potential Temperature", "Practical Salinity"]
+    "O2 (umol/kg)", "Potential Temperature", "Practical Salinity"]
+
+COMPUTE_WITH_SMOOTH = True  # smooth data before analysis
+SMOOTH_OPTION = "rolling_average"  # rolling_averge of butter
+SMOOTH_WINDOW = 0.25  # sets the rolling average window, minutes
+SENTRY_SMOOTH_TARGET_VARS = ["O2", "obs", "potential_temp",
+                             "practical_salinity", "nopp_fundamental", "dorpdt"]
+SENTRY_SMOOTH_TARGET_LABELS = ["O2", "OBS", "Potential Temperature",
+                               "Practical Salinity", "NOPP Inverse Fundamental", "dORPdt"]
+ROSETTE_SMOOTH_TARGET_VARS = ["beam_attenuation", "o2_umol_kg",
+                              "sage_methane_ppm", "pot_temp_C_its90", "prac_salinity"]
+ROSETTE_SMOOTH_TARGET_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
+                                "SAGE Methane (ppm)", "Potential Temperature",
+                                "Practical Salinity"]
 
 GENERATE_ST_PLOTS = False  # generates salinity-temperature plots
 GLOBAL_CORRELATION = False  # generates a global correlation matrix
@@ -155,45 +165,66 @@ if __name__ == '__main__':
     if REMOVE_DEPTH is True:
         for v in SENTRY_DEPTH_TARGET_VARS:
             scc_df = extract_trends(scc_df, 'depth', v)
-        SENTRY_NOPP_VARS = SENTRY_NOPP_VARS + \
-            [f"{v}_anom_depth" for v in SENTRY_DEPTH_TARGET_VARS]
-        SENTRY_NOPP_LABELS = SENTRY_NOPP_LABELS + \
-            [f"{v} Depth Corrected" for v in SENTRY_DEPTH_TARGET_LABELS]
+        for targ in SENTRY_DEPTH_TARGET_VARS:
+            SENTRY_NOPP_VARS.remove(targ)
+            SENTRY_NOPP_VARS.append(f"{targ}_anom_depth")
+            SENTRY_SMOOTH_TARGET_VARS.remove(targ)
+            SENTRY_SMOOTH_TARGET_VARS.append(f"{targ}_anom_depth")
+        for targ in SENTRY_DEPTH_TARGET_LABELS:
+            SENTRY_NOPP_LABELS.remove(targ)
+            SENTRY_NOPP_LABELS.append(f"{targ} Depth Corrected")
+            SENTRY_SMOOTH_TARGET_LABELS.remove(targ)
+            SENTRY_SMOOTH_TARGET_LABELS.append(f"{targ} Depth Corrected")
+
         for v in ROSETTE_DEPTH_TARGET_VARS:
             ros_df = extract_trends(ros_df, 'depth_m', v)
-        ROSETTE_SAGE_VARS = ROSETTE_SAGE_VARS + \
-            [f"{v}_anom_depth_m" for v in ROSETTE_DEPTH_TARGET_VARS]
-        ROSETTE_SAGE_LABELS = ROSETTE_SAGE_LABELS + \
-            [f"{v} Depth Corrected" for v in ROSETTE_DEPTH_TARGET_LABELS]
+        for targ in ROSETTE_DEPTH_TARGET_VARS:
+            ROSETTE_SAGE_VARS.remove(targ)
+            ROSETTE_SAGE_VARS.append(f"{targ}_anom_depth_m")
+            ROSETTE_SMOOTH_TARGET_VARS.remove(targ)
+            ROSETTE_SMOOTH_TARGET_VARS.append(f"{targ}_anom_depth_m")
+        for targ in ROSETTE_DEPTH_TARGET_LABELS:
+            ROSETTE_SAGE_LABELS.remove(targ)
+            ROSETTE_SAGE_LABELS.append(f"{targ} Depth Corrected")
+            ROSETTE_SMOOTH_TARGET_LABELS.remove(targ)
+            ROSETTE_SMOOTH_TARGET_LABELS.append(f"{targ} Depth Corrected")
+
         FIGURE_NAME_ADDITION = FIGURE_NAME_ADDITION + "_depthcorr"
 
     if COMPUTE_WITH_SMOOTH:
         """Smooth all of the data targets"""
         if SMOOTH_OPTION is "rolling_average":
-            scc_smooth_df = scc_df.rolling('15s', center=True).mean()
-            ros_smooth_df = ros_df.rolling('15s', center=True).mean()
+            r_window_size = int(60 * SMOOTH_WINDOW)  # seconds
+            for col in SENTRY_SMOOTH_TARGET_VARS:
+                scc_df[f"{col}_{SMOOTH_OPTION}"] = scc_df[col].rolling(
+                    r_window_size, center=True).mean()
+            for col in ROSETTE_SMOOTH_TARGET_VARS:
+                ros_df[f"{col}_{SMOOTH_OPTION}"] = ros_df[col].rolling(
+                    r_window_size, center=True).mean()
         elif SMOOTH_OPTION is "butter":
-            scc_smooth_df = pd.DataFrame()
-            ros_smooth_df = pd.DataFrame()
             b, a = scipy.signal.butter(2, 0.01, fs=1)
-            for col in scc_df:
-                try:
-                    scc_smooth_df.loc[:, col] = scipy.signal.filtfilt(
-                        b, a, scc_df[col].values, padlen=150)
-                except:
-                    scc_smooth_df.loc[:, col] = scc_df[col]
-            for col in ros_df:
-                try:
-                    ros_smooth_df.loc[:, col] = scipy.signal.filtfilt(
-                        b, a, ros_df[col].values, padlen=150)
-                except:
-                    ros_smooth_df.loc[:, col] = ros_df[col]
+            for col in SENTRY_SMOOTH_TARGET_VARS:
+                scc_df[f"{col}_{SMOOTH_OPTION}"] = scipy.signal.filtfilt(
+                    b, a, scc_df[col].values, padlen=150)
+            for col in ROSETTE_SMOOTH_TARGET_VARS:
+                ros_df[f"{col}_{SMOOTH_OPTION}"] = scipy.signal.filtfilt(
+                    b, a, ros_df[col].values, padlen=150)
         else:
             print("Currently only supporting rolling_average and butter filters")
             pass
-        scc_df = scc_smooth_df
-        ros_df = ros_smooth_df
-        FIGURE_NAME_ADDITION = FIGURE_NAME_ADDITION + f"_{SMOOTH_OPTION}"
+        
+        for targ in SENTRY_SMOOTH_TARGET_VARS:
+            SENTRY_NOPP_VARS.remove(targ)
+            SENTRY_NOPP_VARS.append(f"{targ}_{SMOOTH_OPTION}")
+        for targ in SENTRY_SMOOTH_TARGET_LABELS:
+            SENTRY_NOPP_LABELS.remove(targ)
+            SENTRY_NOPP_LABELS.append(f"{targ} Smoothed")
+        for targ in ROSETTE_SMOOTH_TARGET_VARS:
+            ROSETTE_SAGE_VARS.remove(targ)
+            ROSETTE_SAGE_VARS.append(f"{targ}_{SMOOTH_OPTION}")
+        for targ in ROSETTE_SMOOTH_TARGET_LABELS:
+            ROSETTE_SAGE_LABELS.remove(targ)
+            ROSETTE_SAGE_LABELS.append(f"{targ} Smoothed")
 
     if GENERATE_ST_PLOTS is True:
         plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
@@ -216,7 +247,7 @@ if __name__ == '__main__':
                                    f"transect/figures/rosette_sage_global_corr{FIGURE_NAME_ADDITION}.png")
 
     if LOCAL_CORRELATION is True:
-        r_window_size = 60 * CORR_WINDOW  # seconds
+        r_window_size = int(60 * CORR_WINDOW)  # seconds
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
         compute_local_correlation(scc_df, "timestamp", SENTRY_NOPP_VARS,
                                   SENTRY_NOPP_LABELS, r_window_size, "sentry_nopp", FIGURE_NAME_ADDITION)
