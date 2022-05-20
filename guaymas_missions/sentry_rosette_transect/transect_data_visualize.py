@@ -2,9 +2,11 @@
 
 import os
 import utm
+import scipy.signal
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from guaymas_missions.sentry_rosette_transect.transect_analysis import COMPUTE_WITH_SMOOTH, FIGURE_NAME_ADDITION, SMOOTH_OPTION
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from transect_utils import get_transect_rosette_sage_path, \
@@ -81,6 +83,9 @@ VISUALIZE_SENTRY_NOPP = False
 VISUALIZE_ROSETTE_SAGE = False
 VISUALIZE_ALL_PLATFORMS = True
 VISUALIZE_ROSETTE_SAGE_AND_BOTTLES = False
+COMPUTE_WITH_SMOOTH = True  # whether to visualize smoothed data
+SMOOTH_OPTION = "rolling_average"  # which smoother to use
+FIGURE_NAME_ADDITION = ""
 
 if __name__ == "__main__":
     # Get all of the data
@@ -90,6 +95,34 @@ if __name__ == "__main__":
     bott_df['datetime'] = pd.to_datetime(bott_df['datetime'])
     ros_df = pd.read_csv(ROSETTE_SAGE)
     ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
+
+    if COMPUTE_WITH_SMOOTH:
+        """Smooth all of the data targets"""
+        if SMOOTH_OPTION is "rolling_average":
+            scc_smooth_df = scc_df.rolling('15s', center=True).mean()
+            ros_smooth_df = ros_df.rolling('15s', center=True).mean()
+        elif SMOOTH_OPTION is "butter":
+            scc_smooth_df = pd.DataFrame()
+            ros_smooth_df = pd.DataFrame()
+            b, a = scipy.signal.butter(2, 0.01, fs=1)
+            for col in scc_df:
+                try:
+                    scc_smooth_df.loc[:, col] = scipy.signal.filtfilt(
+                        b, a, scc_df[col].values, padlen=150)
+                except:
+                    scc_smooth_df.loc[:, col] = scc_df[col]
+            for col in ros_df:
+                try:
+                    ros_smooth_df.loc[:, col] = scipy.signal.filtfilt(
+                        b, a, ros_df[col].values, padlen=150)
+                except:
+                    ros_smooth_df.loc[:, col] = ros_df[col]
+        else:
+            print("Currently only supporting rolling_average and butter filters")
+            pass
+        scc_df = scc_smooth_df
+        ros_df = ros_smooth_df
+        FIGURE_NAME_ADDITION = f"_smoothed_{SMOOTH_OPTION}"
 
     # Set up plotting axes meta data
     plot_xlabels_ros = []
@@ -155,7 +188,7 @@ if __name__ == "__main__":
             plt.ylabel("Methane, PPM")
             plt.legend()
             pltname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                   f"transect/figures/gga_sage_over_{rx}.png")
+                                   f"transect/figures/gga_sage_over_{rx}{FIGURE_NAME_ADDITION}.png")
             plt.savefig(pltname)
             plt.close()
 
@@ -178,7 +211,7 @@ if __name__ == "__main__":
             ax2.tick_params(axis='y', labelcolor="orange")
             fig.tight_layout()
             pltname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                   f"transect/figures/nh4_gga_sage_over_{rx}.png")
+                                   f"transect/figures/nh4_gga_sage_over_{rx}{FIGURE_NAME_ADDITION}.png")
             plt.savefig(pltname)
             plt.close()
 
@@ -236,27 +269,27 @@ if __name__ == "__main__":
             data=[bathy_plot, sage_plot, gga_plot], layout_title_text="SAGE and GGA")
         gga_fig.update_yaxes(scaleanchor="x", scaleratio=1)
         gga_fig.write_html(os.path.join(
-            os.getenv("SENTRY_OUTPUT"), "transect/figures/gga_sage_bathy.html"))
+            os.getenv("SENTRY_OUTPUT"), f"transect/figures/gga_sage_bathy{FIGURE_NAME_ADDITION}.html"))
         gga_fig.write_image(os.path.join(
-            os.getenv("SENTRY_OUTPUT"), "transect/figures/gga_sage_bathy.png"), width=1500)
+            os.getenv("SENTRY_OUTPUT"), f"transect/figures/gga_sage_bathy{FIGURE_NAME_ADDITION}.png"), width=1500)
 
         gga_fig = go.Figure(
             data=[bathy_plot_3d, sage_plot_3d, gga_plot_3d], layout_title_text="SAGE and GGA", layout_scene_aspectmode="data")
         gga_fig.write_html(os.path.join(
-            os.getenv("SENTRY_OUTPUT"), "transect/figures/gga_sage_bathy_3d.html"))
+            os.getenv("SENTRY_OUTPUT"), f"transect/figures/gga_sage_bathy_3d{FIGURE_NAME_ADDITION}.html"))
 
         nh4_fig = go.Figure(
             data=[bathy_plot, sage_plot, nh4_plot], layout_title_text="SAGE and NH4")
         nh4_fig.update_yaxes(scaleanchor="x", scaleratio=1)
         nh4_fig.write_html(os.path.join(
-            os.getenv("SENTRY_OUTPUT"), "transect/figures/nh4_sage_bathy.html"))
+            os.getenv("SENTRY_OUTPUT"), f"transect/figures/nh4_sage_bathy{FIGURE_NAME_ADDITION}.html"))
         nh4_fig.write_image(os.path.join(
-            os.getenv("SENTRY_OUTPUT"), "transect/figures/nh4_sage_bathy.png"), width=1500)
+            os.getenv("SENTRY_OUTPUT"), f"transect/figures/nh4_sage_bathy{FIGURE_NAME_ADDITION}.png"), width=1500)
 
         nh4_fig = go.Figure(
             data=[bathy_plot_3d, sage_plot_3d, nh4_plot_3d], layout_title_text="SAGE and NH4", layout_scene_aspectmode="data")
         nh4_fig.write_html(os.path.join(
-            os.getenv("SENTRY_OUTPUT"), "transect/figures/nh4_sage_bathy_3d.html"))
+            os.getenv("SENTRY_OUTPUT"), f"transect/figures/nh4_sage_bathy_3d{FIGURE_NAME_ADDITION}.html"))
 
     if VISUALIZE_ROSETTE_SAGE is True:
         sx, sy, _, _ = utm.from_latlon(
@@ -272,9 +305,9 @@ if __name__ == "__main__":
                     var, 10), np.nanpercentile(var, 90)
                 fig.add_trace(go.Scatter(x=ros_df[rx], y=var), row=i+1, col=1)
             fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            f"transect/figures/rosette_sage_{tx}.png"), width=1500)
+                            f"transect/figures/rosette_sage_{tx}{FIGURE_NAME_ADDITION}.png"), width=1500)
             fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                           f"transect/figures/rosette_sage_{tx}.html"))
+                           f"transect/figures/rosette_sage_{tx}{FIGURE_NAME_ADDITION}.html"))
 
         # create spatial plots
         for i, v in enumerate(ROSETTE_SAGE_VARS):
@@ -291,7 +324,7 @@ if __name__ == "__main__":
                           layout_title_text=ROSETTE_SAGE_LABELS[i])
             f.update_yaxes(scaleanchor="x", scaleratio=1)
             f.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                       f"transect/figures/rosette_sage_bathy_{v}.png"), width=1500)
+                                       f"transect/figures/rosette_sage_bathy_{v}{FIGURE_NAME_ADDITION}.png"), width=1500)
 
             var_plot_3d = create_3d_plot(x=sx,
                                          y=sy,
@@ -305,7 +338,7 @@ if __name__ == "__main__":
                           layout_title_text=ROSETTE_SAGE_LABELS[i],
                           layout_scene_aspectmode="data")
             f.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                      f"transect/figures/rosette_sage_bathy_{v}.html"))
+                                      f"transect/figures/rosette_sage_bathy_{v}{FIGURE_NAME_ADDITION}.html"))
 
     if VISUALIZE_SENTRY_NOPP is True:
         sx, sy, _, _ = utm.from_latlon(
@@ -324,9 +357,9 @@ if __name__ == "__main__":
                     cmin, cmax = 0.0, 0.2
                 fig.add_trace(go.Scatter(x=scc_df[rx], y=var), row=i+1, col=1)
             fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            f"transect/figures/sentry_nopp_{tx}.png"), width=1500)
+                            f"transect/figures/sentry_nopp_{tx}{FIGURE_NAME_ADDITION}.png"), width=1500)
             fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                           f"transect/figures/sentry_nopp_{tx}.html"))
+                           f"transect/figures/sentry_nopp_{tx}{FIGURE_NAME_ADDITION}.html"))
 
         # create spatial 2D slice plots, with altimeter
         alt_fig = create_2d_plot(x=scc_df['ridge_distance'],
@@ -354,9 +387,9 @@ if __name__ == "__main__":
             fig = go.Figure(data=[alt_fig, spat_fig],
                             layout_title_text=SENTRY_NOPP_LABELS[i])
             fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}.png"), width=1500)
+                            f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}{FIGURE_NAME_ADDITION}.png"), width=1500)
             fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                        f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}.html"))
+                                        f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}{FIGURE_NAME_ADDITION}.html"))
 
         # create spatial plots
         for i, v in enumerate(SENTRY_NOPP_VARS):
@@ -377,7 +410,7 @@ if __name__ == "__main__":
                           layout_title_text=SENTRY_NOPP_LABELS[i])
             f.update_yaxes(scaleanchor="x", scaleratio=1)
             f.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                       f"transect/figures/sentry_nopp_bathy_{v}.png"), width=1500)
+                                       f"transect/figures/sentry_nopp_bathy_{v}{FIGURE_NAME_ADDITION}.png"), width=1500)
 
             var_plot_3d = create_3d_plot(x=sx,
                                          y=sy,
@@ -391,7 +424,7 @@ if __name__ == "__main__":
                           layout_title_text=SENTRY_NOPP_LABELS[i],
                           layout_scene_aspectmode="data")
             f.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                      f"transect/figures/sentry_nopp_bathy_{v}.html"))
+                                      f"transect/figures/sentry_nopp_bathy_{v}{FIGURE_NAME_ADDITION}.html"))
 
     if VISUALIZE_ALL_PLATFORMS is True:
         # Create comparison plots
@@ -436,9 +469,9 @@ if __name__ == "__main__":
                 fig = go.Figure(data=[scc_fig, ros_fig],
                                 layout_title_text=f"Sentry and Rosette over {titlex}: {k}")
                 fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                             f"transect/figures/all_over_{titlex}_{k}.png"), width=1500)
+                                             f"transect/figures/all_over_{titlex}_{k}{FIGURE_NAME_ADDITION}.png"), width=1500)
                 fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                            f"transect/figures/all_over_{titlex}_{k}.html"))
+                                            f"transect/figures/all_over_{titlex}_{k}{FIGURE_NAME_ADDITION}.html"))
 
         # create spatial plots
         for k, v in PAIRED_VARS.items():
@@ -475,7 +508,7 @@ if __name__ == "__main__":
                           layout_title_text=f"Sentry and Rosette: {k}")
             f.update_yaxes(scaleanchor="x", scaleratio=1)
             f.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                       f"transect/figures/all_bathy_{k}.png"), width=1500)
+                                       f"transect/figures/all_bathy_{k}{FIGURE_NAME_ADDITION}.png"), width=1500)
 
             sccvar_plot_3d = create_3d_plot(x=sx,
                                             y=sy,
@@ -499,4 +532,4 @@ if __name__ == "__main__":
                           layout_title_text=f"Sentry and Rosette: {k}",
                           layout_scene_aspectmode="data")
             f.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                      f"transect/figures/all_bathy_{k}.html"))
+                                      f"transect/figures/all_bathy_{k}{FIGURE_NAME_ADDITION}.html"))

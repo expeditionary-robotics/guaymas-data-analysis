@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import numpy as np
 import scipy.stats as stats
+import scipy.signal
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
@@ -40,7 +41,7 @@ def compute_global_correlation(df, df_vars, df_labels, fname):
     plt.close()
 
 
-def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
+def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname, fname_add):
     """Computes local correlation and saves figures.
 
     Input:
@@ -50,9 +51,11 @@ def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
         df_labels (list of string): common names of targets
         window (int): number of seconds in the window
         fname (string): what to name the output image
+        fname_add (string): indicator for additional meta data
     """
     # First check that the dataframe is 1Hz sampled
-    sampled_at_1hz = all(df[df_idx].diff()[1:500] == np.timedelta64(1, 's')) == True
+    sampled_at_1hz = all(df[df_idx].diff()[1:500] ==
+                         np.timedelta64(1, 's')) == True
     if not sampled_at_1hz:
         print("ERROR: data is not sampled at 1Hz for averaging purposes")
         return
@@ -86,10 +89,10 @@ def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
                                       y=[f"{p[0]} vs. {p[1]}" for p in pairs],
                                       colorscale="RdBu_r"))
     lname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                         f"transect/figures/{fname}_rolling_correlation.html")
+                         f"transect/figures/{fname}_rolling_correlation{fname_add}.html")
     fig.write_html(lname)
     hname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                         f"transect/figures/{fname}_heat_rolling_correlation.html")
+                         f"transect/figures/{fname}_heat_rolling_correlation{fname_add}.html")
     imfig.write_html(hname)
 
 
@@ -110,10 +113,15 @@ ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
                        "Practical Salinity", "Depth"]
 
 # Analyses
+# run all of the following analyses, also with smoothed data
+COMPUTE_WITH_SMOOTH = True
+# rolling_average, butterworth, sg are types of smoothing operations
+SMOOTH_OPTION = "rolling_average"
 GENERATE_ST_PLOTS = False  # generates salinity-temperature plots
 GLOBAL_CORRELATION = False  # generates a global correlation matrix
 LOCAL_CORRELATION = True  # generates line and heatmaps of rolling correlations
 CORR_WINDOW = 15  # sets the rolling correlation window, minutes
+FIGURE_NAME_ADDITION = ""
 
 if __name__ == '__main__':
     # Get all of the data
@@ -124,30 +132,58 @@ if __name__ == '__main__':
     ros_df = pd.read_csv(ROSETTE_SAGE)
     ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
 
+    if COMPUTE_WITH_SMOOTH:
+        """Smooth all of the data targets"""
+        if SMOOTH_OPTION is "rolling_average":
+            scc_smooth_df = scc_df.rolling('15s', center=True).mean()
+            ros_smooth_df = ros_df.rolling('15s', center=True).mean()
+        elif SMOOTH_OPTION is "butter":
+            scc_smooth_df = pd.DataFrame()
+            ros_smooth_df = pd.DataFrame()
+            b, a = scipy.signal.butter(2, 0.01, fs=1)
+            for col in scc_df:
+                try:
+                    scc_smooth_df.loc[:, col] = scipy.signal.filtfilt(
+                        b, a, scc_df[col].values, padlen=150)
+                except:
+                    scc_smooth_df.loc[:, col] = scc_df[col]
+            for col in ros_df:
+                try:
+                    ros_smooth_df.loc[:, col] = scipy.signal.filtfilt(
+                        b, a, ros_df[col].values, padlen=150)
+                except:
+                    ros_smooth_df.loc[:, col] = ros_df[col]
+        else:
+            print("Currently only supporting rolling_average and butter filters")
+            pass
+        scc_df = scc_smooth_df
+        ros_df = ros_smooth_df
+        FIGURE_NAME_ADDITION = f"_smoothed_{SMOOTH_OPTION}"
+
     if GENERATE_ST_PLOTS is True:
         plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
                     c=scc_df["nopp_fundamental"], cmap="inferno_r")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                 f"transect/figures/sentry_st_methane.png"))
+                                 f"transect/figures/sentry_st_methane{FIGURE_NAME_ADDITION}.png"))
         plt.close()
         plt.scatter(ros_df["prac_salinity"], ros_df["pot_temp_C_its90"],
                     c=ros_df["sage_methane_ppm"], cmap="inferno")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                 f"transect/figures/rosette_st_methane.png"))
+                                 f"transect/figures/rosette_st_methane{FIGURE_NAME_ADDITION}.png"))
         plt.close()
 
     if GLOBAL_CORRELATION is True:
         # Global Pearson Correlation
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
         compute_global_correlation(scc_df, SENTRY_NOPP_VARS, SENTRY_NOPP_LABELS,
-                                   "transect/figures/sentry_nopp_global_corr.png")
+                                   f"transect/figures/sentry_nopp_global_corr{FIGURE_NAME_ADDITION}.png")
         compute_global_correlation(ros_df, ROSETTE_SAGE_VARS, ROSETTE_SAGE_LABELS,
-                                   "transect/figures/rosette_sage_global_corr.png")
+                                   f"transect/figures/rosette_sage_global_corr{FIGURE_NAME_ADDITION}.png")
 
     if LOCAL_CORRELATION is True:
         r_window_size = 60 * CORR_WINDOW  # seconds
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
         compute_local_correlation(scc_df, "timestamp", SENTRY_NOPP_VARS,
-                                  SENTRY_NOPP_LABELS, r_window_size, "sentry_nopp")
+                                  SENTRY_NOPP_LABELS, r_window_size, "sentry_nopp", FIGURE_NAME_ADDITION)
         compute_local_correlation(ros_df, "datetime", ROSETTE_SAGE_VARS,
-                                  ROSETTE_SAGE_LABELS, r_window_size, "rosette_sage")
+                                  ROSETTE_SAGE_LABELS, r_window_size, "rosette_sage", FIGURE_NAME_ADDITION)
