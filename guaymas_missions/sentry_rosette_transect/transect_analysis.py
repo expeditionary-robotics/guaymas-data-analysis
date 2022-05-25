@@ -375,12 +375,14 @@ if __name__ == '__main__':
             plt.title(SENTRY_NOPP_LABELS[i])
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/sentry_nopp_histo_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
 
             # Boxplots
             plt.boxplot(scc_df[col].values, labels=[
                         SENTRY_NOPP_LABELS[i]], meanline=True, showmeans=True)
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/sentry_nopp_box_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
 
         ros_df_1 = ros_df[ros_df.datetime <=
                           pd.Timestamp("2021-11-30 07:00:04")]
@@ -398,6 +400,7 @@ if __name__ == '__main__':
             ax[1].set_title("Leg 2")
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/rosette_sage_histo_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
 
             # Boxplots
             plt.boxplot([ros_df_1[col].values, ros_df_2[col].values], labels=[
@@ -405,3 +408,4 @@ if __name__ == '__main__':
             plt.title(ROSETTE_SAGE_VARS[i])
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/rosette_sage_box_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
