@@ -205,6 +205,7 @@ CORR_WINDOW = 15  # sets the rolling correlation window, minutes
 STUMPY_FRONT_ANALYSIS = False  # whether to attempt front ID with stumpy package
 FRONT_WINDOW = 15  # sets the window for front detection, minutes
 RUPTURES_FRONT_ANALYSIS = False  # whether to attempt front ID with ruptures package
+CREATE_STATS_PLOTS = True  # whether to generate summary stats plots
 FIGURE_NAME_ADDITION = ""
 
 if __name__ == '__main__':
@@ -364,3 +365,43 @@ if __name__ == '__main__':
             plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/rosette_sage_leg2_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+
+    if CREATE_STATS_PLOTS is True:
+        scc_df.dropna(subset=SENTRY_NOPP_VARS, inplace=True)
+        scc_df = scc_df[scc_df.timestamp > pd.Timestamp("2021-11-30 06:00:00")]
+        for i, col in enumerate(SENTRY_NOPP_VARS):
+            # Histograms
+            plt.hist(scc_df[col].values, bins=100, density=True)
+            plt.title(SENTRY_NOPP_LABELS[i])
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/sentry_nopp_histo_{col}{FIGURE_NAME_ADDITION}.png"))
+
+            # Boxplots
+            plt.boxplot(scc_df[col].values, labels=[
+                        SENTRY_NOPP_LABELS[i]], meanline=True, showmeans=True)
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/sentry_nopp_box_{col}{FIGURE_NAME_ADDITION}.png"))
+
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_1.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        for i, col in enumerate(ROSETTE_SAGE_VARS):
+            # Histograms
+            fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+            fig.suptitle(ROSETTE_SAGE_LABELS[i])
+            ax[0].hist(ros_df_1[col].values, bins=50, density=True)
+            ax[0].set_title("Leg 1")
+            ax[1].hist(ros_df_2[col].values, bins=50, density=True)
+            ax[1].set_title("Leg 2")
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_histo_{col}{FIGURE_NAME_ADDITION}.png"))
+
+            # Boxplots
+            plt.boxplot([ros_df_1[col].values, ros_df_2[col].values], labels=[
+                        "Leg 1", "Leg 2"], meanline=True, showmeans=True)
+            plt.title(ROSETTE_SAGE_VARS[i])
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_box_{col}{FIGURE_NAME_ADDITION}.png"))
