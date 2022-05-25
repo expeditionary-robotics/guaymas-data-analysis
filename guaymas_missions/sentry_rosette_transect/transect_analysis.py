@@ -1,15 +1,32 @@
 """Reads in transect data and performs several analyses with visualization."""
 
 import os
+import stumpy
 import pandas as pd
 import numpy as np
+import ruptures as rpt
 import scipy.stats as stats
+import scipy.signal
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from itertools import combinations
 from transect_utils import get_transect_bottles_path, \
     get_transect_rosette_sage_path, get_transect_sentry_nopp_path
+
+
+def extract_trends(df, x, y, fit="polyfit", inplace=True):
+    """Find the trends relationship between inputs and remove."""
+    if fit is "polyfit":
+        z = np.polyfit(df[x].values, df[y].values, 1)
+        p = np.poly1d(z)
+        df[f"{y}_bkgnd_{x}"] = p(df[x].values)
+        df[f"{y}_anom_{x}"] = df[y].values - df[f"{y}_bkgnd_{x}"].values
+        return df
+    else:
+        print("Currently only supporting polyfit removal.")
+        return df
 
 
 def compute_global_correlation(df, df_vars, df_labels, fname):
@@ -40,7 +57,7 @@ def compute_global_correlation(df, df_vars, df_labels, fname):
     plt.close()
 
 
-def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
+def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname, fname_add):
     """Computes local correlation and saves figures.
 
     Input:
@@ -50,9 +67,11 @@ def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
         df_labels (list of string): common names of targets
         window (int): number of seconds in the window
         fname (string): what to name the output image
+        fname_add (string): indicator for additional meta data
     """
     # First check that the dataframe is 1Hz sampled
-    sampled_at_1hz = all(df[df_idx].diff()[1:500] == np.timedelta64(1, 's')) == True
+    sampled_at_1hz = all(df[df_idx].diff()[1:500] ==
+                         np.timedelta64(1, 's')) == True
     if not sampled_at_1hz:
         print("ERROR: data is not sampled at 1Hz for averaging purposes")
         return
@@ -86,11 +105,59 @@ def compute_local_correlation(df, df_idx, df_vars, df_labels, window, fname):
                                       y=[f"{p[0]} vs. {p[1]}" for p in pairs],
                                       colorscale="RdBu_r"))
     lname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                         f"transect/figures/{fname}_rolling_correlation.html")
+                         f"transect/figures/{fname}_rolling_correlation{fname_add}.html")
     fig.write_html(lname)
     hname = os.path.join(os.getenv("SENTRY_OUTPUT"),
-                         f"transect/figures/{fname}_heat_rolling_correlation.html")
+                         f"transect/figures/{fname}_heat_rolling_correlation{fname_add}.html")
     imfig.write_html(hname)
+
+
+def compute_anoms_and_regimes(df, df_idx, df_vars, df_labels,  window, fname, fname_add):
+    """Computes anomalies and regime changes for a given df."""
+    # compute the matrix profile, discord id, and regime changes
+    for i, col in enumerate(df_vars):
+        targ = df[col]
+        mp = stumpy.stump(targ, m=window)
+        discord_idx = np.argsort(mp[:, 0])[-1]
+        cac, regime_locations = stumpy.fluss(
+            mp[:, 1], L=window, n_regimes=3, excl_factor=1)
+
+        # create plots
+        fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'hspace': 0})
+        plt.suptitle(
+            f'Discord (Anomaly/Novelty) Discovery in {df_labels[i]}')
+        axs[0].plot(df[df_idx], targ)
+        axs[0].set_ylabel(df_labels[i])
+        axs[0].axvline(x=df[df_idx].values[discord_idx], linestyle="dashed")
+        axs[1].set_xlabel('Time')
+        axs[1].set_ylabel('Matrix Profile')
+        axs[1].axvline(x=df[df_idx].values[discord_idx], linestyle="dashed")
+        axs[1].plot(df[df_idx].values[:-(window-1)], mp[:, 0])
+        plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                 f"transect/figures/{fname}_anomaly_{col}{fname_add}.png"))
+
+        fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'hspace': 0})
+        plt.suptitle(
+            f'Regime Change Identification in {df_labels[i]}')
+        axs[0].plot(df[df_idx], targ)
+        axs[0].axvline(
+            x=df[df_idx].values[regime_locations[0]], linestyle="dashed")
+        axs[0].axvline(
+            x=df[df_idx].values[regime_locations[1]], linestyle="dashed")
+        axs[1].plot(df[df_idx].values[:-(window-1)], cac, color='C1')
+        axs[1].axvline(
+            x=df[df_idx].values[regime_locations[0]], linestyle="dashed")
+        axs[1].axvline(
+            x=df[df_idx].values[regime_locations[1]], linestyle="dashed")
+        plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                    f"transect/figures/{fname}_regimes_{col}{fname_add}.png"))
+
+        print(f"{fname}")
+        print(
+            f"{df_labels[i]} Anomaly Detected at {df[df_idx].values[discord_idx]}")
+        print(
+            f"{df_labels[i]} Regimes Detected at {df[df_idx].values[regime_locations[0]]}, {df[df_idx].values[regime_locations[1]]}")
+        print("------------")
 
 
 # Datasets
@@ -110,10 +177,36 @@ ROSETTE_SAGE_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
                        "Practical Salinity", "Depth"]
 
 # Analyses
+REMOVE_DEPTH = True  # compute depth correction
+SENTRY_DEPTH_TARGET_VARS = ["O2", "potential_temp", "practical_salinity"]
+SENTRY_DEPTH_TARGET_LABELS = [
+    "O2", "Potential Temperature", "Practical Salinity"]
+ROSETTE_DEPTH_TARGET_VARS = ["o2_umol_kg", "pot_temp_C_its90", "prac_salinity"]
+ROSETTE_DEPTH_TARGET_LABELS = [
+    "O2 (umol/kg)", "Potential Temperature", "Practical Salinity"]
+
+COMPUTE_WITH_SMOOTH = True  # smooth data before analysis
+SMOOTH_OPTION = "rolling_average"  # rolling_averge of butter
+SMOOTH_WINDOW = 15  # sets the rolling average window, minutes
+SENTRY_SMOOTH_TARGET_VARS = ["O2", "obs", "potential_temp",
+                             "practical_salinity", "nopp_fundamental", "dorpdt"]
+SENTRY_SMOOTH_TARGET_LABELS = ["O2", "OBS", "Potential Temperature",
+                               "Practical Salinity", "NOPP Inverse Fundamental", "dORPdt"]
+ROSETTE_SMOOTH_TARGET_VARS = ["beam_attenuation", "o2_umol_kg",
+                              "sage_methane_ppm", "pot_temp_C_its90", "prac_salinity"]
+ROSETTE_SMOOTH_TARGET_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
+                                "SAGE Methane (ppm)", "Potential Temperature",
+                                "Practical Salinity"]
+
 GENERATE_ST_PLOTS = False  # generates salinity-temperature plots
 GLOBAL_CORRELATION = False  # generates a global correlation matrix
-LOCAL_CORRELATION = True  # generates line and heatmaps of rolling correlations
+LOCAL_CORRELATION = False  # generates line and heatmaps of rolling correlations
 CORR_WINDOW = 15  # sets the rolling correlation window, minutes
+STUMPY_FRONT_ANALYSIS = False  # whether to attempt front ID with stumpy package
+FRONT_WINDOW = 15  # sets the window for front detection, minutes
+RUPTURES_FRONT_ANALYSIS = False  # whether to attempt front ID with ruptures package
+CREATE_STATS_PLOTS = True  # whether to generate summary stats plots
+FIGURE_NAME_ADDITION = ""
 
 if __name__ == '__main__':
     # Get all of the data
@@ -123,31 +216,196 @@ if __name__ == '__main__':
     bott_df['datetime'] = pd.to_datetime(bott_df['datetime'])
     ros_df = pd.read_csv(ROSETTE_SAGE)
     ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
+    ros_df = ros_df.dropna(subset=["sage_methane_ppm"])
+
+    if REMOVE_DEPTH is True:
+        for v in SENTRY_DEPTH_TARGET_VARS:
+            scc_df = extract_trends(scc_df, 'depth', v)
+        for targ in SENTRY_DEPTH_TARGET_VARS:
+            SENTRY_NOPP_VARS.remove(targ)
+            SENTRY_NOPP_VARS.append(f"{targ}_anom_depth")
+            SENTRY_SMOOTH_TARGET_VARS.remove(targ)
+            SENTRY_SMOOTH_TARGET_VARS.append(f"{targ}_anom_depth")
+        for targ in SENTRY_DEPTH_TARGET_LABELS:
+            SENTRY_NOPP_LABELS.remove(targ)
+            SENTRY_NOPP_LABELS.append(f"{targ} Depth Corrected")
+            SENTRY_SMOOTH_TARGET_LABELS.remove(targ)
+            SENTRY_SMOOTH_TARGET_LABELS.append(f"{targ} Depth Corrected")
+
+        for v in ROSETTE_DEPTH_TARGET_VARS:
+            ros_df = extract_trends(ros_df, 'depth_m', v)
+        for targ in ROSETTE_DEPTH_TARGET_VARS:
+            ROSETTE_SAGE_VARS.remove(targ)
+            ROSETTE_SAGE_VARS.append(f"{targ}_anom_depth_m")
+            ROSETTE_SMOOTH_TARGET_VARS.remove(targ)
+            ROSETTE_SMOOTH_TARGET_VARS.append(f"{targ}_anom_depth_m")
+        for targ in ROSETTE_DEPTH_TARGET_LABELS:
+            ROSETTE_SAGE_LABELS.remove(targ)
+            ROSETTE_SAGE_LABELS.append(f"{targ} Depth Corrected")
+            ROSETTE_SMOOTH_TARGET_LABELS.remove(targ)
+            ROSETTE_SMOOTH_TARGET_LABELS.append(f"{targ} Depth Corrected")
+
+        FIGURE_NAME_ADDITION = FIGURE_NAME_ADDITION + "_depthcorr"
+
+    if COMPUTE_WITH_SMOOTH is True:
+        """Smooth all of the data targets"""
+        if SMOOTH_OPTION is "rolling_average":
+            r_window_size = int(60 * SMOOTH_WINDOW)  # seconds
+            for col in SENTRY_SMOOTH_TARGET_VARS:
+                scc_df[f"{col}_{SMOOTH_OPTION}"] = scc_df[col].rolling(
+                    r_window_size, center=True).mean()
+            for col in ROSETTE_SMOOTH_TARGET_VARS:
+                ros_df[f"{col}_{SMOOTH_OPTION}"] = ros_df[col].rolling(
+                    r_window_size, center=True).mean()
+        elif SMOOTH_OPTION is "butter":
+            b, a = scipy.signal.butter(2, 0.01, fs=1)
+            for col in SENTRY_SMOOTH_TARGET_VARS:
+                scc_df[f"{col}_{SMOOTH_OPTION}"] = scipy.signal.filtfilt(
+                    b, a, scc_df[col].values, padlen=150)
+            for col in ROSETTE_SMOOTH_TARGET_VARS:
+                ros_df[f"{col}_{SMOOTH_OPTION}"] = scipy.signal.filtfilt(
+                    b, a, ros_df[col].values, padlen=150)
+        else:
+            print("Currently only supporting rolling_average and butter filters")
+            pass
+
+        for targ in SENTRY_SMOOTH_TARGET_VARS:
+            SENTRY_NOPP_VARS.remove(targ)
+            SENTRY_NOPP_VARS.append(f"{targ}_{SMOOTH_OPTION}")
+        for targ in SENTRY_SMOOTH_TARGET_LABELS:
+            SENTRY_NOPP_LABELS.remove(targ)
+            SENTRY_NOPP_LABELS.append(f"{targ} Smoothed")
+        for targ in ROSETTE_SMOOTH_TARGET_VARS:
+            ROSETTE_SAGE_VARS.remove(targ)
+            ROSETTE_SAGE_VARS.append(f"{targ}_{SMOOTH_OPTION}")
+        for targ in ROSETTE_SMOOTH_TARGET_LABELS:
+            ROSETTE_SAGE_LABELS.remove(targ)
+            ROSETTE_SAGE_LABELS.append(f"{targ} Smoothed")
 
     if GENERATE_ST_PLOTS is True:
         plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
                     c=scc_df["nopp_fundamental"], cmap="inferno_r")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                 f"transect/figures/sentry_st_methane.png"))
+                                 f"transect/figures/sentry_st_methane{FIGURE_NAME_ADDITION}.png"))
         plt.close()
         plt.scatter(ros_df["prac_salinity"], ros_df["pot_temp_C_its90"],
                     c=ros_df["sage_methane_ppm"], cmap="inferno")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                 f"transect/figures/rosette_st_methane.png"))
+                                 f"transect/figures/rosette_st_methane{FIGURE_NAME_ADDITION}.png"))
         plt.close()
 
     if GLOBAL_CORRELATION is True:
         # Global Pearson Correlation
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
         compute_global_correlation(scc_df, SENTRY_NOPP_VARS, SENTRY_NOPP_LABELS,
-                                   "transect/figures/sentry_nopp_global_corr.png")
+                                   f"transect/figures/sentry_nopp_global_corr{FIGURE_NAME_ADDITION}.png")
         compute_global_correlation(ros_df, ROSETTE_SAGE_VARS, ROSETTE_SAGE_LABELS,
-                                   "transect/figures/rosette_sage_global_corr.png")
+                                   f"transect/figures/rosette_sage_global_corr{FIGURE_NAME_ADDITION}.png")
 
     if LOCAL_CORRELATION is True:
-        r_window_size = 60 * CORR_WINDOW  # seconds
+        r_window_size = int(60 * CORR_WINDOW)  # seconds
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
         compute_local_correlation(scc_df, "timestamp", SENTRY_NOPP_VARS,
-                                  SENTRY_NOPP_LABELS, r_window_size, "sentry_nopp")
+                                  SENTRY_NOPP_LABELS, r_window_size, "sentry_nopp", FIGURE_NAME_ADDITION)
         compute_local_correlation(ros_df, "datetime", ROSETTE_SAGE_VARS,
-                                  ROSETTE_SAGE_LABELS, r_window_size, "rosette_sage")
+                                  ROSETTE_SAGE_LABELS, r_window_size, "rosette_sage", FIGURE_NAME_ADDITION)
+
+    if STUMPY_FRONT_ANALYSIS is True:
+        scc_df.dropna(inplace=True)
+        scc_df = scc_df[scc_df.timestamp > pd.Timestamp("2021-11-30 06:00:00")]
+        compute_anoms_and_regimes(scc_df, "timestamp", SENTRY_NOPP_VARS,
+                                  SENTRY_NOPP_LABELS, FRONT_WINDOW, "sentry_nopp", FIGURE_NAME_ADDITION)
+
+        # ros_df leg 1
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_1.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        compute_anoms_and_regimes(ros_df_1, "datetime", ROSETTE_SAGE_VARS,
+                                  ROSETTE_SAGE_LABELS, FRONT_WINDOW, "rosette_sage_leg1", FIGURE_NAME_ADDITION)
+
+        # ros_df leg 2
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        compute_anoms_and_regimes(ros_df_2, "datetime", ROSETTE_SAGE_VARS,
+                                  ROSETTE_SAGE_LABELS, FRONT_WINDOW, "rosette_sage_leg2", FIGURE_NAME_ADDITION)
+
+    if RUPTURES_FRONT_ANALYSIS is True:
+        # based on https://techrando.com/2019/08/14/a-brief-introduction-to-change-point-detection-using-python/
+        scc_df.dropna(inplace=True)
+        scc_df = scc_df[scc_df.timestamp > pd.Timestamp("2021-11-30 06:00:00")]
+        model = "rbf"
+
+        for i, col in enumerate(SENTRY_NOPP_VARS):
+            algo = rpt.Pelt(model=model).fit(scc_df[col].values[::10])
+            result = algo.predict(pen=10)
+            rpt.display(scc_df[col].values[::10], result, figsize=(10, 6))
+            plt.title(f'Change Point Detection: {SENTRY_NOPP_LABELS[i]}')
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/sentry_nopp_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_1.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+
+        for i, col in enumerate(ROSETTE_SAGE_VARS):
+            algo = rpt.Pelt(model=model).fit(ros_df_1[col].values[::10])
+            result = algo.predict(pen=10)
+            rpt.display(ros_df_1[col].values[::10], result, figsize=(10, 6))
+            plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_leg1_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+
+            algo = rpt.Pelt(model=model).fit(ros_df_2[col].values)
+            result = algo.predict(pen=10)
+            rpt.display(ros_df_2[col].values, result, figsize=(10, 6))
+            plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_leg2_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+
+    if CREATE_STATS_PLOTS is True:
+        scc_df.dropna(subset=SENTRY_NOPP_VARS, inplace=True)
+        scc_df = scc_df[scc_df.timestamp > pd.Timestamp("2021-11-30 06:00:00")]
+        for i, col in enumerate(SENTRY_NOPP_VARS):
+            # Histograms
+            plt.hist(scc_df[col].values, bins=100, density=True)
+            plt.title(SENTRY_NOPP_LABELS[i])
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/sentry_nopp_histo_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
+
+            # Boxplots
+            plt.boxplot(scc_df[col].values, labels=[
+                        SENTRY_NOPP_LABELS[i]], meanline=True, showmeans=True)
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/sentry_nopp_box_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
+
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_1.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        for i, col in enumerate(ROSETTE_SAGE_VARS):
+            # Histograms
+            fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+            fig.suptitle(ROSETTE_SAGE_LABELS[i])
+            ax[0].hist(ros_df_1[col].values, bins=50, density=True)
+            ax[0].set_title("Leg 1")
+            ax[1].hist(ros_df_2[col].values, bins=50, density=True)
+            ax[1].set_title("Leg 2")
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_histo_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
+
+            # Boxplots
+            plt.boxplot([ros_df_1[col].values, ros_df_2[col].values], labels=[
+                        "Leg 1", "Leg 2"], meanline=True, showmeans=True)
+            plt.title(ROSETTE_SAGE_VARS[i])
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_box_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
