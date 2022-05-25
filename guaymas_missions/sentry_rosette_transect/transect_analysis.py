@@ -4,6 +4,7 @@ import os
 import stumpy
 import pandas as pd
 import numpy as np
+import ruptures as rpt
 import scipy.stats as stats
 import scipy.signal
 import matplotlib.pyplot as plt
@@ -201,8 +202,9 @@ GENERATE_ST_PLOTS = False  # generates salinity-temperature plots
 GLOBAL_CORRELATION = False  # generates a global correlation matrix
 LOCAL_CORRELATION = False  # generates line and heatmaps of rolling correlations
 CORR_WINDOW = 15  # sets the rolling correlation window, minutes
-STUMPY_FRONT_ANALYSIS = True  # whether to attempt ID of fronts in a sensor stream
+STUMPY_FRONT_ANALYSIS = False  # whether to attempt front ID with stumpy package
 FRONT_WINDOW = 15  # sets the window for front detection, minutes
+RUPTURES_FRONT_ANALYSIS = False  # whether to attempt front ID with ruptures package
 FIGURE_NAME_ADDITION = ""
 
 if __name__ == '__main__':
@@ -278,9 +280,6 @@ if __name__ == '__main__':
         for targ in ROSETTE_SMOOTH_TARGET_LABELS:
             ROSETTE_SAGE_LABELS.remove(targ)
             ROSETTE_SAGE_LABELS.append(f"{targ} Smoothed")
-        
-        plt.plot(ros_df["sage_methane_ppm_rolling_average"])
-        plt.show()
 
     if GENERATE_ST_PLOTS is True:
         plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
@@ -319,11 +318,49 @@ if __name__ == '__main__':
         # ros_df leg 1
         ros_df_1 = ros_df[ros_df.datetime <=
                           pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_1.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
         compute_anoms_and_regimes(ros_df_1, "datetime", ROSETTE_SAGE_VARS,
                                   ROSETTE_SAGE_LABELS, FRONT_WINDOW, "rosette_sage_leg1", FIGURE_NAME_ADDITION)
 
         # ros_df leg 2
         ros_df_2 = ros_df[ros_df.datetime >
                           pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
         compute_anoms_and_regimes(ros_df_2, "datetime", ROSETTE_SAGE_VARS,
                                   ROSETTE_SAGE_LABELS, FRONT_WINDOW, "rosette_sage_leg2", FIGURE_NAME_ADDITION)
+
+    if RUPTURES_FRONT_ANALYSIS is True:
+        # based on https://techrando.com/2019/08/14/a-brief-introduction-to-change-point-detection-using-python/
+        scc_df.dropna(inplace=True)
+        scc_df = scc_df[scc_df.timestamp > pd.Timestamp("2021-11-30 06:00:00")]
+        model = "rbf"
+
+        for i, col in enumerate(SENTRY_NOPP_VARS):
+            algo = rpt.Pelt(model=model).fit(scc_df[col].values[::10])
+            result = algo.predict(pen=10)
+            rpt.display(scc_df[col].values[::10], result, figsize=(10, 6))
+            plt.title(f'Change Point Detection: {SENTRY_NOPP_LABELS[i]}')
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/sentry_nopp_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_1.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2.dropna(inplace=True, subset=ROSETTE_SAGE_VARS)
+
+        for i, col in enumerate(ROSETTE_SAGE_VARS):
+            algo = rpt.Pelt(model=model).fit(ros_df_1[col].values[::10])
+            result = algo.predict(pen=10)
+            rpt.display(ros_df_1[col].values[::10], result, figsize=(10, 6))
+            plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_leg1_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+
+            algo = rpt.Pelt(model=model).fit(ros_df_2[col].values)
+            result = algo.predict(pen=10)
+            rpt.display(ros_df_2[col].values, result, figsize=(10, 6))
+            plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
+            plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                     f"transect/figures/rosette_sage_leg2_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
