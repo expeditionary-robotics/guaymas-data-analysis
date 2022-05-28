@@ -1,6 +1,8 @@
 """Utilities file for parsing transect data."""
 import os
 import utm
+import scipy
+import numpy as np
 
 # Input files relevant to transect analysis
 INPUT_NOPP = os.path.join(os.getenv("SENTRY_DATA"),
@@ -50,3 +52,31 @@ def get_transect_bottles_path():
 def get_transect_rosette_sage_path():
     """Returns the transect rosette and Sage merged filepath."""
     return ROSETTE_SAGE
+
+def extract_trends(df, x, y, fit="polyfit", inplace=True):
+    """Find the trends relationship between inputs and remove."""
+    if fit is "polyfit":
+        z = np.polyfit(df[x].values, df[y].values, 1)
+        p = np.poly1d(z)
+        df[f"{y}_bkgnd_{x}"] = p(df[x].values)
+        df[f"{y}_anom_{x}"] = df[y].values - df[f"{y}_bkgnd_{x}"].values
+        return df
+    else:
+        print("Currently only supporting polyfit removal.")
+        return df
+
+def smooth_data(df, target_vars, smooth_option="rolling_average", smooth_window=15):
+    """Smooth data in df[target_vars] using smooth method."""
+    if smooth_option is "rolling_average":
+        r_window_size = int(60 * smooth_window)  # seconds
+        for col in target_vars:
+            df[f"{col}_{smooth_option}"] = df[col].rolling(
+                r_window_size, center=True).mean()
+    elif smooth_option is "butter":
+        b, a = scipy.signal.butter(2, 0.01, fs=1)
+        for col in target_vars:
+            df[f"{col}_{smooth_option}"] = scipy.signal.filtfilt(
+                b, a, df[col].values, padlen=150)
+    else:
+        print("Currently only supporting rolling_average and butter filters")
+        pass
