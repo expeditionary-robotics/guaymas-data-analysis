@@ -27,15 +27,17 @@ READ_FILE = False
 
 # Whether to visualize
 VISUALIZE = True
+ONSCREEN = True
+WITH_SCATTER = True
+WINDOW = 30
 VIZ_TARG = ["beam_attenuation", "o2_umol_kg",
             "sage_methane_ppm", "pot_temp_C_its90", "prac_salinity"]
 VIZ_LABEL = ["Beam Attentuation", "O2 (umol/kg)",
              "SAGE Methane (ppm)", "Potential Temperature",
              "Practical Salinity"]
 Y_TARGET = "depth_m"  # "digiquartz_pressure_db"
-WINDOW = 120
-TOP_DEPTH = 0
-BOTTOM_DEPTH = 1750
+TOP_VAL = 1000  # for truncating y-axis, set in units y_target
+BOTTOM_VAL = 1600  # for truncating y-axis, set in units y_target
 
 
 if __name__ == "__main__":
@@ -155,28 +157,32 @@ if __name__ == "__main__":
 
         for viz_targ, viz_label in zip(VIZ_TARG, VIZ_LABEL):
             fig, ax = plt.subplots(1, 1, figsize=(5, 15))
-            ax.scatter(down_leg1[viz_targ], down_leg1[Y_TARGET],
-                       s=1, alpha=0.2)
+            if WITH_SCATTER is True:
+                ax.scatter(down_leg1[viz_targ], down_leg1[Y_TARGET],
+                           s=1, alpha=0.2)
+                ax.scatter(up_leg1[viz_targ], up_leg1[Y_TARGET],
+                           s=1, alpha=0.2)
+                ax.scatter(down_leg2[viz_targ], down_leg2[Y_TARGET],
+                           s=1, alpha=0.2)
+                if "sage" not in viz_targ:
+                    ax.scatter(up_leg2[viz_targ], up_leg2[Y_TARGET],
+                               s=1, alpha=0.2)
             ax.plot(down_leg1[viz_targ].rolling(
                 WINDOW, center=True).mean(), down_leg1[Y_TARGET], label="Downcast, Leg1")
-            ax.scatter(up_leg1[viz_targ], up_leg1[Y_TARGET],
-                       s=1, alpha=0.2)
             ax.plot(up_leg1[viz_targ].rolling(
                 WINDOW, center=True).mean(), up_leg1[Y_TARGET], label="Upcast, Leg1")
-            ax.scatter(down_leg2[viz_targ], down_leg2[Y_TARGET],
-                       s=1, alpha=0.2)
             ax.plot(down_leg2[viz_targ].rolling(
                 WINDOW, center=True).mean(), down_leg2[Y_TARGET], label="Downcast, Leg2")
             if "sage" not in viz_targ:
-                ax.scatter(up_leg2[viz_targ], up_leg2[Y_TARGET],
-                           s=1, alpha=0.2)
                 ax.plot(up_leg2[viz_targ].rolling(
                     WINDOW, center=True).mean(), up_leg2["depth_m"], label="Upcast, Leg2")
-            ax.set_ylim([TOP_DEPTH, BOTTOM_DEPTH])
+            ax.set_ylim([TOP_VAL, BOTTOM_VAL])
             ax.invert_yaxis()
             ax.set_ylabel(Y_TARGET)
             ax.set_xlabel(viz_label)
             plt.legend()
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                         f"transect/figures/cast_{Y_TARGET}_{viz_targ}.png"))
+            if ONSCREEN is True:
+                plt.show()
             plt.close()
