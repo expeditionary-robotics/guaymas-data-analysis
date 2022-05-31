@@ -17,7 +17,7 @@ from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-from sentry_data_analysis.utils import tic, toc
+from guaymas_data_analysis.utils import tic, toc
 
 # Package dependencies
 from .data_utils import convert_to_latlon
