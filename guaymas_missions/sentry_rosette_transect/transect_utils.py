@@ -5,7 +5,7 @@ import scipy
 import numpy as np
 
 # Input files relevant to transect analysis
-INPUT_NOPP = os.path.join(os.getenv("SENTRY_DATA"),
+INPUT_PYTHIA = os.path.join(os.getenv("SENTRY_DATA"),
                           "nopp/raw/N1-sentry613.txt")
 INPUT_SAGE_LEG1 = os.path.join(os.getenv(
     "SENTRY_DATA"), "hcf/raw/HCF_205_Cast10_TransectExplorationLeg1.csv")
@@ -27,10 +27,10 @@ CHIMA = (27.407489, -111.389893)
 CHIMB = (27.412645, -111.386915)
 AX, AY, ZN, ZL = utm.from_latlon(CHIMA[0], CHIMA[1])
 BX, BY, _, _ = utm.from_latlon(CHIMB[0], CHIMB[1])
-RIDGE = utm.to_latlon((AX + BX) / 2., (AY + BY) / 2., ZN, ZL)
+RIDGE = (float(AX), float(AY))  # utm.to_latlon((AX + BX) / 2., (AY + BY) / 2., ZN, ZL)
 
 # Processed data file targets for transect analysis
-SENTRY_NOPP = os.path.join(os.getenv("SENTRY_DATA"),
+SENTRY_PYTHIA = os.path.join(os.getenv("SENTRY_DATA"),
                            "missions/transect/sentry_nopp.csv")
 BOTTLES = os.path.join(os.getenv("SENTRY_DATA"),
                        "missions/transect/bottle_gga_nh4.csv")
@@ -39,11 +39,11 @@ ROSETTE_SAGE = os.path.join(os.getenv("SENTRY_DATA"),
 
 def get_transect_input_paths():
     """Returns the NOPP, SAGE1, SAGE2, Rosette, GGA, NH4, Bottles, and Sentry filepaths."""
-    return INPUT_NOPP, INPUT_SAGE_LEG1, INPUT_SAGE_LEG2, INPUT_ROSETTE, INPUT_GGA, INPUT_NH4, INPUT_BOTTLES, INPUT_SENTRY
+    return INPUT_PYTHIA, INPUT_SAGE_LEG1, INPUT_SAGE_LEG2, INPUT_ROSETTE, INPUT_GGA, INPUT_NH4, INPUT_BOTTLES, INPUT_SENTRY
 
-def get_transect_sentry_nopp_path():
-    """Returns the Sentry and Nopp merged filepath."""
-    return SENTRY_NOPP
+def get_transect_sentry_pythia_path():
+    """Returns the Sentry and Pythia merged filepath."""
+    return SENTRY_PYTHIA
 
 def get_transect_bottles_path():
     """Returns the transect bottle merged filepath."""
