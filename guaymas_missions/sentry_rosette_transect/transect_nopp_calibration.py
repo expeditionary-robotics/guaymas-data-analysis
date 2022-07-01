@@ -66,10 +66,10 @@ STEP_SMOOTH_WINDOW = 120  # number of samples to smooth over
 TRANSECT_SMOOTH_WINDOW = 5  # number of minutes to smooth over
 
 # What to run
-CALIB_TARGETS = ["fundamental", "ringdown"]
+CALIB_TARGETS = ["fundamental"]
 WITH_SMOOTH = False
 WITH_TIME_CORRECTION = True
-SAVE_TO_FILE = True  # whether to save this to transect file
+SAVE_TO_FILE = False  # whether to save this to transect file
 
 
 if __name__ == "__main__":
@@ -96,24 +96,18 @@ if __name__ == "__main__":
         TRANSECT_SMOOTH_WINDOW*60).mean(centered=True)
     scc_df["ringdown_smooth"] = scc_df.nopp_ringdown.rolling(
         TRANSECT_SMOOTH_WINDOW*60).mean(centered=True)
-    
-
-    # Convert calibration to nM
-    # cal_df.loc[:, "conc_nM"] = cal_df.conc_ppm
-    cal_df.loc[:, "conc_nM"] = cal_df.apply(lambda x: sol.sol_SP_pt(
-        0, 3, gas='CH4', p_dry=x.conc_ppm*0.14*1e-6, units="mM")/1e-6, axis=1)
 
     for target in CALIB_TARGETS:
         # Interpolative fit
         def f(x): return np.interp(
-            x, cal_df.conc_nM.values, cal_df[target].values)
+            x, cal_df.conc_ppm.values, cal_df[target].values)
 
         # Check interpolation
         m = f(np.linspace(0, 1000, 100))
-        plt.scatter(cal_df.conc_nM.values,
+        plt.scatter(cal_df.conc_ppm.values,
                     cal_df[target].values, c="orange", label="Lab Data")
         plt.plot(np.linspace(0, 1000, 100), m, label="Interpolated")
-        plt.xlabel("Methane Concentration (nM)")
+        plt.xlabel("Methane Concentration (ppm)")
         plt.ylabel(f"{target} value")
         plt.legend()
         plt.tight_layout()
@@ -122,20 +116,20 @@ if __name__ == "__main__":
 
         # Invert the interpolation
         if target is "fundamental":
-            def fp(x): return np.interp(-x, -f(np.linspace(0, np.nanmax(cal_df.conc_nM.values),
-                                                           1000)), np.linspace(0, np.nanmax(cal_df.conc_nM.values), 1000))
+            def fp(x): return np.interp(-x, -f(np.linspace(0, np.nanmax(cal_df.conc_ppm.values),
+                                                           1000)), np.linspace(0, np.nanmax(cal_df.conc_ppm.values), 1000))
             check_num = 0.4
         elif target is "ringdown":
-            def fp(x): return np.interp(x, f(np.linspace(0, np.nanmax(cal_df.conc_nM.values),
-                                                         1000)), np.linspace(0, np.nanmax(cal_df.conc_nM.values), 1000))
+            def fp(x): return np.interp(x, f(np.linspace(0, np.nanmax(cal_df.conc_ppm.values),
+                                                         1000)), np.linspace(0, np.nanmax(cal_df.conc_ppm.values), 1000))
             check_num = 1.2
 
         # Check the inverted interpolation
         m = fp(np.linspace(0, check_num, 1000))
         plt.scatter(cal_df[target].values,
-                    cal_df.conc_nM.values, c="orange", label="Lab Data")
+                    cal_df.conc_ppm.values, c="orange", label="Lab Data")
         plt.plot(np.linspace(0, check_num, 1000), m, label="Interpolated")
-        plt.ylabel("Methane Concentration (nM)")
+        plt.ylabel("Methane Concentration (ppm)")
         plt.xlabel(f"{target} value")
         plt.legend()
         plt.tight_layout()
@@ -145,24 +139,24 @@ if __name__ == "__main__":
 
         # Convert step and transect data into nM, use smoothed data
         if WITH_SMOOTH is True:
-            step_df.loc[:, f"{target}_nM"] = step_df.apply(
+            step_df.loc[:, f"{target}_ppm"] = step_df.apply(
                 lambda x: fp(x[f"{target}_smooth"]), axis=1)
             plt.plot(fp(step_df[target]), label="Step, Converted")
-            plt.plot(step_df[f"{target}_nM"], label="Step, Smoothed")
+            plt.plot(step_df[f"{target}_ppm"], label="Step, Smoothed")
             plt.xlabel("Sample Number")
-            plt.ylabel("Methane (nM)")
+            plt.ylabel("Methane (ppm)")
             plt.legend()
             plt.tight_layout()
             plt.savefig(os.path.join(
                 OUTPUT, f"nopp/nopp_{target}_step_smoothed.png"))
             plt.close()
 
-            scc_df.loc[:, f"{target}_nM"] = scc_df.apply(
+            scc_df.loc[:, f"{target}_ppm"] = scc_df.apply(
                 lambda x: fp(x[f"{target}_smooth"]), axis=1)
             plt.plot(fp(scc_df[f"nopp_{target}"]), label="Transect, Converted")
-            plt.plot(scc_df[f"{target}_nM"], label="Transect, Smoothed")
+            plt.plot(scc_df[f"{target}_ppm"], label="Transect, Smoothed")
             plt.xlabel("Sample Number")
-            plt.ylabel("Methane (nM)")
+            plt.ylabel("Methane (ppm)")
             plt.legend()
             plt.tight_layout()
             plt.savefig(os.path.join(
@@ -172,9 +166,9 @@ if __name__ == "__main__":
             # Visualize the transect
             fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
             ax[0].scatter(scc_df.timestamp, scc_df[f"nopp_{target}"])
-            ax[1].scatter(scc_df.timestamp, scc_df[f"{target}_nM"])
+            ax[1].scatter(scc_df.timestamp, scc_df[f"{target}_ppm"])
             ax[0].set_ylabel(f"{target} signal")
-            ax[1].set_ylabel("Methane, nM -- Smoothed")
+            ax[1].set_ylabel("Methane, ppm -- Smoothed")
             ax[1].set_xlabel("Datetime")
             fig.tight_layout()
             fig.savefig(os.path.join(
@@ -187,26 +181,26 @@ if __name__ == "__main__":
                 tau = 35*60
             elif target is "ringdown":
                 tau = 40*60
-            step_df.loc[:, f"{target}_nM"] = TimeLagCorrection(
+            step_df.loc[:, f"{target}_ppm"] = TimeLagCorrection(
                 fp(step_df[f"{target}_smooth"]), step_df["datetime"], tau=tau, S=1, N=int(tau/4))
             plt.plot(step_df["datetime"], fp(step_df[target]), label="Step, Converted")
             plt.plot(step_df["datetime"], fp(step_df[f"{target}_smooth"]), label="Step, Smoothed")
-            plt.plot(step_df["datetime"], step_df[f"{target}_nM"], label="Step, Time Correction")
+            plt.plot(step_df["datetime"], step_df[f"{target}_ppm"], label="Step, Time Correction")
             plt.xlabel("Sample Number")
-            plt.ylabel("Methane (nM)")
+            plt.ylabel("Methane (ppm)")
             plt.legend()
             plt.tight_layout()
             plt.savefig(os.path.join(
                 OUTPUT, f"nopp/nopp_{target}_step_corrected.png"))
             plt.close()
 
-            scc_df.loc[:, f"{target}_nM"] = TimeLagCorrection(
+            scc_df.loc[:, f"{target}_ppm"] = TimeLagCorrection(
                 fp(scc_df[f"{target}_smooth"]), scc_df["timestamp"], tau=tau, S=1, N=int(tau/4))
             plt.plot(scc_df["timestamp"], fp(scc_df[f"nopp_{target}"]), label="Transect, Converted")
             plt.plot(scc_df["timestamp"], fp(scc_df[f"{target}_smooth"]), label="Transect, Smoothed")
-            plt.plot(scc_df["timestamp"], scc_df[f"{target}_nM"], label="Transect, Time Correction")
+            plt.plot(scc_df["timestamp"], scc_df[f"{target}_ppm"], label="Transect, Time Correction")
             plt.xlabel("Sample Number")
-            plt.ylabel("Methane (nM)")
+            plt.ylabel("Methane (ppm)")
             plt.legend()
             plt.tight_layout()
             plt.savefig(os.path.join(
@@ -216,9 +210,9 @@ if __name__ == "__main__":
             # Visualize the transect
             fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
             ax[0].scatter(scc_df.timestamp, scc_df[f"nopp_{target}"])
-            ax[1].scatter(scc_df.timestamp, scc_df[f"{target}_nM"])
+            ax[1].scatter(scc_df.timestamp, scc_df[f"{target}_ppm"])
             ax[0].set_ylabel(f"{target} signal")
-            ax[1].set_ylabel("Methane, nM -- Time Corrected")
+            ax[1].set_ylabel("Methane, ppm -- Time Corrected")
             ax[1].set_xlabel("Datetime")
             fig.tight_layout()
             fig.savefig(os.path.join(
@@ -226,8 +220,8 @@ if __name__ == "__main__":
             plt.close()
         
         else:
-            step_df.loc[:, f"{target}_nM"] = fp(step_df[target])
-            scc_df.loc[:, f"{target}_nM"] = fp(scc_df[f"nopp_{target}"])
+            step_df.loc[:, f"{target}_ppm"] = fp(step_df[target])
+            scc_df.loc[:, f"{target}_ppm"] = fp(scc_df[f"nopp_{target}"])
 
 
     if SAVE_TO_FILE is True:

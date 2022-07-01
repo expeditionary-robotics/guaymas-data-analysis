@@ -57,10 +57,10 @@ BOTTLES = get_transect_bottles_path()
 ROSETTE_SAGE = get_transect_rosette_sage_path()
 
 # For 2d plots, what dimension to plot on x-axis
-OVER_TIME = True
+OVER_TIME = False
 OVER_DISTANCE = True
-OVER_LONGITUDE = True
-OVER_LATITUDE = True
+OVER_LONGITUDE = False
+OVER_LATITUDE = False
 
 # What variables to compare
 SENTRY_NOPP_VARS = ["O2", "obs", "nopp_fundamental", "dorpdt",
@@ -100,11 +100,11 @@ ROSETTE_SMOOTH_TARGET_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
 VISUALIZE_SENTRY_NOPP = True
 VISUALIZE_ROSETTE_SAGE = True
 VISUALIZE_ALL_PLATFORMS = True
-VISUALIZE_ROSETTE_SAGE_AND_BOTTLES = False
+VISUALIZE_ROSETTE_SAGE_AND_BOTTLES = True
 COMPUTE_WITH_DEPTH_CORRECTION = True  # whether to subtract depth
 COMPUTE_WITH_SMOOTH = True  # whether to visualize smoothed data
 SMOOTH_OPTION = "rolling_average"  # which smoother to use
-SMOOTH_WINDOW = 15  # number of minutes to smooth over
+SMOOTH_WINDOW = 5  # number of minutes to smooth over
 FIGURE_NAME_ADDITION = ""
 SENTRY_VAR_ADDITION = ""
 ROSETTE_VAR_ADDITION = ""
@@ -232,16 +232,16 @@ if __name__ == "__main__":
         for rx, bx, tx in zip(plot_xlabels_ros, plot_xlabels_bott, plot_xlabel_titles):
             plt.scatter(
                 temp_ros_df[rx], temp_ros_df[f"sage_methane_ppm{ROSETTE_VAR_ADDITION}"], label="SAGE")
-            plt.scatter(bott_df[bx], bott_df["GGA Methane"],
-                        label="GGA, Raw PPM")
+            # plt.scatter(bott_df[bx], bott_df["GGA Methane"],
+            #             label="GGA, nM")
             plt.scatter(
-                bott_df[bx], bott_df["ch4_ppm_corr_05"], label="GGA, 0.05 Eff.")
+                bott_df[bx], bott_df["ch4_nM_corr_023"], label="GGA, 0.023 Eff.")
             plt.scatter(
-                bott_df[bx], bott_df["ch4_ppm_corr_15"], label="GGA, 0.15 Eff.")
-            plt.vlines(bott_df[bx], ymin=bott_df["GGA Methane"],
-                       ymax=bott_df["ch4_ppm_corr_05"], color="blue", label="GGA Range")
+                bott_df[bx], bott_df["ch4_nM_corr_033"], label="GGA, 0.033 Eff.")
+            plt.vlines(bott_df[bx], ymin=bott_df["ch4_nM_corr_033"],
+                       ymax=bott_df["ch4_nM_corr_023"], color="blue", label="GGA Range")
             plt.xlabel(tx)
-            plt.ylabel("Methane, PPM")
+            plt.ylabel("Methane, nM")
             plt.legend()
             pltname = os.path.join(os.getenv("SENTRY_OUTPUT"),
                                    f"transect/figures/gga_sage_over_{rx}{FIGURE_NAME_ADDITION}.png")
