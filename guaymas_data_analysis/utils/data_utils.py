@@ -52,7 +52,7 @@ def convert_oceanographic_measurements(df: pd.DataFrame, vehicle="sentry"):
     # calculate practical salinity
     df.loc[:, "practical_salinity"] = df.apply(
         lambda x: gsw.SP_from_C(
-            C=x["ctd_cond"],
+            C=x["ctd_cond"]*10,
             t=x["ctd_temp"],
             p=x["ctd_pres"],
         ),
@@ -189,4 +189,8 @@ def distance(lat1, lon1, lat2, lon2):
     # apply law of cosines to compute distance
     a = np.sin(dlat / 2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2)**2
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-    return R * c
+
+    # apply a sign
+    sig = np.sign(lat2-lat1)
+
+    return R * c * sig
