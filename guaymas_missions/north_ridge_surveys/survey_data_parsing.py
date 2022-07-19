@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 import scipy as sp
 import datetime
+from datetime import timezone
 from scipy.io import loadmat
-import datetime as datetime
 from gasex import sol
 
 # Imports from utility files
@@ -15,7 +15,7 @@ from guaymas_data_analysis.data_processing.nopp.laboratory_calibration import \
 from guaymas_data_analysis.utils.data_utils import \
     calculate_northing_easting_from_lat_lon, \
     convert_oceanographic_measurements, dens
-from guaymas_data_analysis.utils.metadata_utils import calibrate_nopp, \
+from guaymas_data_analysis.utils.metadata_utils import \
     sentry_filename_by_dive, nopp_filename_by_dive, hcf_filename_by_dive, \
     sentry_site_by_dive, extent_by_site, sentry_phase_by_dive_and_time
 from guaymas_data_analysis.utils import EAST_REFERENCE, NORTH_REFERENCE
@@ -31,10 +31,6 @@ PYTHIA_TIME_CORRECTION_WINDOW = 5*60  # seconds
 #############
 if __name__ == '__main__':
     for DIVE_NAME in DIVES:
-        # Get the site location and extent
-        SITE = sentry_site_by_dive(DIVE_NAME)
-        EXTENT = extent_by_site(SITE)
-
         # Science Sensors
         INPUT_SCC, INPUT_RENAV = sentry_filename_by_dive(DIVE_NAME)
 
@@ -66,7 +62,7 @@ if __name__ == '__main__':
         * orp
         """
         # Read in science data
-        print('Creating dataframe for science data')
+        print(f'Creating dataframe for {DIVE_NAME} science data')
         scc_mat = loadmat(INPUT_SCC)
         scc_mdata = scc_mat["sci"]
         scc_mdtype = scc_mdata.dtype
@@ -76,6 +72,7 @@ if __name__ == '__main__':
 
         # Convert seconds to timestamps
         scc_df.loc[:, "timestamp"] = pd.to_datetime(scc_df["t"], unit="s")
+        scc_df["timestamp"] = scc_df["timestamp"].dt.tz_localize(timezone.utc)
 
         if INPUT_RENAV is not None:
             """Sometimes data could be missing from the main scc file.
@@ -84,8 +81,10 @@ if __name__ == '__main__':
                 other_df = loadmat(merge_file)
                 other_mdata = other_df[RENAV_KEYS[idx]]
                 keys_of_interest = ["t"]
+                cols_of_interest = ["t"]
                 for k in RENAV_COL_TARGETS[idx].keys():
                     keys_of_interest.append(k)
+                    cols_of_interest.append(RENAV_COL_TARGETS[idx][k])
                 other_ndata = {n: other_mdata[n][0, 0].flatten()
                                for n in keys_of_interest}
 
@@ -96,7 +95,7 @@ if __name__ == '__main__':
                 other_df_subset = other_df_subset.drop_duplicates(subset="t")
 
                 scc_df = scc_df.merge(
-                    other_df_subset[keys_of_interest], how="left", on="t")
+                    other_df_subset[cols_of_interest], how="left", on="t")
 
                 if idx == "renav_optode":
                     # Need to convert concentration to a useful measurement
@@ -127,11 +126,11 @@ if __name__ == '__main__':
             temp_sig_smoothed_fund = pythia_df.fundamental.rolling(
                 PYTHIA_TIME_CORRECTION_WINDOW).mean(centered=True)
             pythia_df["fundamental"] = TimeLagCorrection(fundamental_conversion(
-                temp_sig_smoothed_fund), pythia_df["timestamp"], FUND_TAU, FUND_TAU/4)
+                temp_sig_smoothed_fund), pythia_df["timestamp"], FUND_TAU, int(FUND_TAU/4))
             temp_sig_smoothed_ring = pythia_df.ringdown.rolling(
                 PYTHIA_TIME_CORRECTION_WINDOW).mean(centered=True)
             pythia_df["ringdown"] = TimeLagCorrection(ringdown_conversion(
-                temp_sig_smoothed_ring), pythia_df["timestamp"], RING_TAU, RING_TAU/4)
+                temp_sig_smoothed_ring), pythia_df["timestamp"], RING_TAU, int(RING_TAU/4))
 
             # perform merge, only keeping signal
             scc_df = scc_df.merge(
@@ -161,25 +160,24 @@ if __name__ == '__main__':
                 sage_df[["t", "methane"]], how="left", on="t")
 
             # Compute solubility scaled SAGE data
-            scc_df.loc[:, 'methane'] = sage_df.apply(lambda x: sol.sol_SP_pt(
+            scc_df.loc[:, 'methane'] = scc_df.apply(lambda x: sol.sol_SP_pt(
                 x["practical_salinity"], x["potential_temp"], gas='CH4', p_dry=x["methane"] * 1e-6, units='mM') * 1e6, axis=1)
 
-        # Set index
-        if "timestamp_x" in scc_df.columns:
-            # Rename column names changed by join
-            scc_df.rename({"timestamp_x": "timestamp"}, axis=1, inplace=True)
-        scc_df.set_index("timestamp", inplace=True)
+        # compute phases, relevant for AI settings
+        try:
+            scc_df.loc[:, "phase"] = scc_df.apply(
+                lambda x: sentry_phase_by_dive_and_time(x["timestamp"], DIVE_NAME), axis=1)
+        except ValueError:
+            scc_df.loc[:, "phase"] = np.zeros_like(scc_df.index)
 
         # calculate northing and easting using utm
         calculate_northing_easting_from_lat_lon(
             scc_df, refeasting=EAST_REFERENCE, refnorthing=NORTH_REFERENCE)
 
-        # compute phases, relevant for AI settings
-        try:
-            scc_df.loc[:, "phase"] = scc_df.apply(
-                lambda x: sentry_phase_by_dive_and_time(x['timestamp'], DIVE_NAME), axis=1)
-        except ValueError:
-            scc_df.loc[:, "phase"] = np.zeros_like(scc_df.index)
+        # Set index
+        if "timestamp_x" in scc_df.columns:
+            # Rename column names changed by join
+            scc_df.rename({"timestamp_x": "timestamp"}, axis=1, inplace=True)
 
         print('Saving dataframe...')
         output_file = os.path.join(
