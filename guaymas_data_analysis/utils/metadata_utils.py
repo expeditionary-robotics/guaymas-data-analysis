@@ -327,11 +327,13 @@ def sentry_filename_by_dive(dive_name):
         raise ValueError(f"Unrecognized dive {dive_name}")
     input_scc = f"sentry/raw/{dive_name}_{date}_{time}_scc.mat"
     input_orp = f"sentry/raw/{dive_name}_{date}_{time}_orp_renav.mat"
+    input_o2 = f"sentry/raw/{dive_name}_{date}_{time}_optode_renav.mat"
 
     input_scc = os.path.join(os.getenv("SENTRY_DATA"), input_scc)
     input_orp = os.path.join(os.getenv("SENTRY_DATA"), input_orp)
+    input_o2 = os.path.join(os.getenv("SENTRY_DATA"), input_o2)
 
-    return input_scc, [input_orp]
+    return input_scc, [input_orp, input_o2]
 
 
 def sentry_phase_by_dive_and_time(time, dive_name):
