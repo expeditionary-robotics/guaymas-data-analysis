@@ -97,7 +97,7 @@ if __name__ == '__main__':
                 scc_df = scc_df.merge(
                     other_df_subset[cols_of_interest], how="left", on="t")
 
-                if idx == "renav_optode":
+                if RENAV_KEYS[idx] == "renav_optode":
                     # Need to convert concentration to a useful measurement
                     scc_df.O2_conc = scc_df.O2_conc.interpolate()  # uM
                     scc_df.O2_conc = scc_df.O2_conc / \

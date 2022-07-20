@@ -338,27 +338,27 @@ def sentry_filename_by_dive(dive_name):
 
 def sentry_phase_by_dive_and_time(time, dive_name):
     if dive_name == "sentry610":
-        # Phase 1
+        # Phase 1 Adaptive
         phase1_start = datetime(2021, 11, 24, 16, 13, 36, tzinfo=timezone.utc)
         phase1_end = datetime(2021, 11, 24, 20, 3, 21, tzinfo=timezone.utc)
 
-        # Phase 2
+        # Phase 2 Naive
         phase2_start = datetime(2021, 11, 24, 20, 18, 33, tzinfo=timezone.utc)
         phase2_end = datetime(2021, 11, 25, 0, 33, 42, tzinfo=timezone.utc)
 
-        # Phase 3
+        # Phase 3 Adaptive
         phase3_start = datetime(2021, 11, 25, 0, 46, 45, tzinfo=timezone.utc)
         phase3_end = datetime(2021, 11, 25, 4, 39, 1, tzinfo=timezone.utc)
 
-        # Phase 4
+        # Phase 4 Adaptive
         phase4_start = datetime(2021, 11, 25, 5, 8, 12, tzinfo=timezone.utc)
         phase4_end = datetime(2021, 11, 25, 8, 42, 41, tzinfo=timezone.utc)
 
-        # Phase 5
+        # Phase 5 Naive
         phase5_start = datetime(2021, 11, 25, 9, 13, 31, tzinfo=timezone.utc)
         phase5_end = datetime(2021, 11, 25, 13, 8, 58, tzinfo=timezone.utc)
 
-        # Phase 6
+        # Phase 6 Adaptive
         phase6_start = datetime(2021, 11, 25, 13, 24, 25, tzinfo=timezone.utc)
         phase6_end = datetime(2021, 11, 25, 13, 47, 42, tzinfo=timezone.utc)
 
@@ -376,7 +376,7 @@ def sentry_phase_by_dive_and_time(time, dive_name):
             return 6
         else:
             # warnings.warn(f"Warning: provided time {time} is not assigned a phase.")
-            return None
+            return 0
     elif dive_name == "sentry611":
         # Phase 1
         phase1_start = datetime(2021, 11, 26, 20, 24, 57, tzinfo=timezone.utc)
@@ -440,7 +440,7 @@ def sentry_phase_by_dive_and_time(time, dive_name):
             return 10
         else:
             # warnings.warn(f"Warning: provided time {time} is not assigned a phase.")
-            return None
+            return 0
     else:
         raise ValueError(
             f"We haven't determined the phases for {dive_name} yet.")

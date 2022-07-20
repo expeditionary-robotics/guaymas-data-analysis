@@ -52,7 +52,7 @@ def convert_oceanographic_measurements(df: pd.DataFrame, vehicle="sentry"):
     # calculate practical salinity
     df.loc[:, "practical_salinity"] = df.apply(
         lambda x: gsw.SP_from_C(
-            C=x["ctd_cond"],
+            C=x["ctd_cond"]*10,
             t=x["ctd_temp"],
             p=x["ctd_pres"],
         ),
