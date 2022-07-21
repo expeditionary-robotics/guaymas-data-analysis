@@ -37,8 +37,6 @@ class BinarySensor():
         sensor_weights (List[flost]): how much to "count" a measurement
         window_width (int): "window_width // 2" samples before and after an anomalous value will also
             be considered anomalous for each sensor stream
-        filter_ascent_descent (bool): try to detect descent/ascent using a heuristic on d/dt(gradient) and
-            ignore these values for calculating mean/stddev or for estimating percentiles
         mode (str): one of BINARY_SENSOR_MODES that determines the anomaly detection for a single data stream
         num_stddev (int): if mode is "meanstd", number of stddevs outside of which data is anomalous
         calibration_window (int): is mode is "meanstd_windowed", the size of the chunks to calibrate
@@ -52,7 +50,6 @@ class BinarySensor():
         num_sensors_consensus: int = len(SENTRY_DIVE_ALL_KEYS) // 2,
         sensor_weights: List[float] = [1 for m in SENTRY_DIVE_ALL_KEYS],
         window_width: int = 10,
-        filter_ascent_descent: bool = False,
         mode: str = "meanstd",
         num_stddev: int = 2,
         calibration_window: int = 1000,
@@ -63,7 +60,6 @@ class BinarySensor():
         self._num_sensors_consensus = num_sensors_consensus
         self._sensor_weights = sensor_weights
         self._window_width = window_width
-        self._filter_ascent_descent = filter_ascent_descent
 
         self._is_calibrated = False
         self._calibrated_vals = {}
@@ -123,10 +119,7 @@ class BinarySensor():
             df (pd.DataFrame): sensor data, assumed to have keys of interest for
                 different datastreams
         """
-        if self._filter_ascent_descent:
-            start_idx, end_idx = detect_ascent_descent(df)
-        else:
-            start_idx, end_idx = 0, len(df)
+        start_idx, end_idx = 0, len(df)
 
         for k in self._sensor_keys:
             min, max = self.get_single_datastream_limits(
@@ -151,9 +144,6 @@ class BinarySensor():
         assert self._is_calibrated
         for k in self._sensor_keys:
             assert k in df.keys()
-
-        if self._filter_ascent_descent:
-            start_idx, end_idx = detect_ascent_descent(df)
 
         # for each individual sensor stream, detect anomalies
         num_anomalous_sensors = np.zeros((len(df)))

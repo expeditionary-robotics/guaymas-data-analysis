@@ -161,7 +161,7 @@ if __name__ == '__main__':
 
             # Compute solubility scaled SAGE data
             scc_df.loc[:, 'methane'] = scc_df.apply(lambda x: sol.sol_SP_pt(
-                x["practical_salinity"], x["potential_temp"], gas='CH4', p_dry=x["methane"] * 1e-6, units='mM') * 1e6, axis=1)
+                x["practical_salinity"], x["potential_temp"], gas='CH4', p_dry=x["methane"], units='mM') * 1e6, axis=1)
 
         # compute phases, relevant for AI settings
         try:
