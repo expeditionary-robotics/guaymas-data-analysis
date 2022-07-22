@@ -12,6 +12,8 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from itertools import combinations
 
+from guaymas_data_analysis.utils.pseudosensor_utils import SciencePseudoSensor
+
 
 def extract_trends(df, x, y_list, labels, fit="polyfit", inplace=True, plot=False):
     """Find the trends relationship between inputs and remove."""
@@ -49,7 +51,7 @@ def smooth_data(df, target_vars, smooth_option="rolling_average", smooth_window=
         r_window_size = int(60 * smooth_window)  # seconds
         for col in target_vars:
             df[col] = df[col].rolling(
-                r_window_size, center=True).mean()
+                r_window_size, center=True).mean(centered=True)
     elif smooth_option is "butter":
         b, a = scipy.signal.butter(2, 0.01, fs=1)
         for col in target_vars:
@@ -94,13 +96,25 @@ def compute_distance_and_angle(ref_coord, traj_coord):
 ##########
 DIVES = ["sentry607", "sentry608", "sentry610", "sentry611"]
 RIDGE_REFERENCE = (27.412645, -111.386915)
-METHANE_COL = ["fundamental", "fundamental", "fundamental", "methane"]
+SENSOR = SciencePseudoSensor(sensors=["O2_conc", "potential_temp", "practical_salinity", "obs", "dorpdt", "methane"],
+                             treatments=[dict(method="meanstd_window", num_std=3, window=60*60),
+                                         dict(
+                                             method="percentile", percentile_lower=0, percentile_upper=75),
+                                         dict(method="meanstd", num_std=3),
+                                         dict(
+                                             method="percentile", percentile_lower=0, percentile_upper=75),
+                                         dict(method="threshold",
+                                              threshold=-0.005, direction="<"),
+                                         dict(method="threshold", threshold=0.3, direction=">")],
+                             weights=[1., 2., 1., 2., 2., 2.],
+                             num_corroboration=4)
+
 METHANE_LABEL = ["Pythia Fundamental", "Pythia Fundamental",
                  "Pythia Fundamental", "SAGE Methane"]
 # PLOT_VARS = ["fundamental"]
 # PLOT_LABELS = ["Pythia Fundamental"]
 PLOT_VARS = ["O2_conc", "potential_temp",
-             "practical_salinity", "obs", "dorpdt", "fundamental"]
+             "practical_salinity", "obs", "dorpdt", "methane"]
 PLOT_LABELS = ["Oxygen Concentration (umol/kg)", "Potential Temperature (C)",
                "Practical Salinity (PSU)", "Optical Backscatter (%)", "dORPdt", "Pythia Fundamental"]
 
@@ -130,11 +144,11 @@ DETREND = True  # whether to remove altitude effects
 DETREND_VARS = ["O2_conc", "potential_temp", "practical_salinity"]
 DETREND_LABELS = ["O2", "Potential Temperature", "Practical Salinity"]
 
-SMOOTH = False  # whether to smooth the data
+SMOOTH = True  # whether to smooth the data
 SMOOTH_OPTION = "rolling_average"  # rolling_averge or butter
-SMOOTH_WINDOW = 15  # sets the rolling average window, minutes
+SMOOTH_WINDOW = 5  # sets the rolling average window, minutes
 SMOOTH_VARS = ["O2_conc", "obs", "potential_temp",
-               "practical_salinity", "fundamental"]
+               "practical_salinity", "methane"]
 
 NORMALIZE = True  # whether to normalize the methane data
 NORM_THRESH = 0.3  # detection threshold for methane presence in normalized data
@@ -163,6 +177,8 @@ if __name__ == '__main__':
         temp_df["timestamp"] = pd.to_datetime(temp_df['timestamp'])
         temp_df["dive_name"] = [DIVE_NAME for i in range(
             len(temp_df.timestamp.values))]
+        if "fundamental" in temp_df.columns:
+            temp_df["methane"] = temp_df["fundamental"]
         all_dfs.append(temp_df)
     scc_df = pd.concat(all_dfs)
 
@@ -177,25 +193,27 @@ if __name__ == '__main__':
         scc_df = extract_trends(
             scc_df, 'depth', DETREND_VARS, DETREND_LABELS, plot=DEPTH_PLOT)
 
-    # Normalize data
-    if NORMALIZE is True:
-        scc_df["fundamental"] = norm(scc_df["fundamental"])
-        scc_df["methane"] = norm(scc_df["methane"])
+    ############
+    # Apply binary pseudosensor(s)
+    ############
 
     # Break everything back out
     for idx, DIVE_NAME in enumerate(DIVES):
         mission_df = scc_df[scc_df["dive_name"] == DIVE_NAME]
 
+        # Normalize data
+        if NORMALIZE is True:
+            mission_df["methane"] = norm(mission_df["methane"])
+
         # Add the right methane target
-        if METHANE_COL[idx] is "fundamental":
+        if METHANE_LABEL[idx] is "Pythia Fundamental":
             # Fundamental signal is already smoothed at time correction
             try:
-                SMOOTH_VARS.remove("fundamental")
+                SMOOTH_VARS.remove("methane")
             except ValueError:
                 pass
         else:
-            SMOOTH_VARS.append(METHANE_COL[idx])
-        PLOT_VARS[-1] = METHANE_COL[idx]
+            SMOOTH_VARS.append("methane")
         PLOT_LABELS[-1] = METHANE_LABEL[idx]
 
         # Smooth data
@@ -206,27 +224,46 @@ if __name__ == '__main__':
         ############
         # Apply binary pseudosensor(s)
         ############
-        # Methane threshold (>150nM or >0.3 when normalized)
-        # OBS threshold (>0.15)
-        # ORP mask (only negative values)
-        # valid anom detect O2, ORP, temp, salt
+        detections_df = SENSOR.get_detections(mission_df)
+        detections_df.to_csv(os.path.join(
+            os.getenv("SENTRY_OUTPUT"), f"north_ridge_surveys/detection_{DIVE_NAME}.csv"))
+        mission_df.loc[:, "detections"] = detections_df["detections"]
+        sensor_detection_plots = make_subplots(rows=len(PLOT_VARS)+1, cols=1, shared_xaxes=True,
+                                               subplot_titles=tuple(PLOT_LABELS+["Detections"]))
+        for ids, sensor in enumerate(PLOT_VARS):
+            sensor_detection_plots.add_trace(go.Scatter(x=mission_df["timestamp"][::PLOT_N],
+                                                        y=detections_df[f"{sensor}_treatment"][::PLOT_N],
+                                                        mode="markers"),
+                                             row=ids+1,
+                                             col=1)
+        sensor_detection_plots.add_trace(go.Scatter(x=mission_df["timestamp"][::PLOT_N],
+                                                    y=mission_df["detections"][::PLOT_N],
+                                                    mode="markers"),
+                                         row=ids+2,
+                                         col=1)
+        sensor_detection_plots.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                                       f"north_ridge_surveys/figures/binary_{DIVE_NAME}_{target}.svg"), width=750, height=750)
 
-        mission_df.loc[:,"plume_indicator"] = mission_df.apply(lambda x: int(x[METHANE_COL[idx]] > NORM_THRESH), axis=1)
-        sfig = go.Scatter(x=mission_df["lon"][::PLOT_N],
-                          y=mission_df["lat"][::PLOT_N],
-                          mode="markers",
-                          marker=dict(size=5,
-                                      color=mission_df["plume_indicator"][::PLOT_N],
-                                      colorscale="Inferno",
-                                      colorbar=dict(
-                                          thickness=20, x=-0.2, tickfont=dict(size=20)),),
-                          name="Binary Detection")
-        fig = go.Figure([bathy_plot, sfig], layout_title_text="Binary Detection")
+        mission_df.sort_values(by="detections", ascending=True, inplace=True)
+        sfig = go.Scatter3d(x=mission_df["lon"][::PLOT_N],
+                            y=mission_df["lat"][::PLOT_N],
+                            z=-mission_df["depth"][::PLOT_N],
+                            mode="markers",
+                            marker=dict(size=2,
+                                        color=mission_df["detections"][::PLOT_N],
+                                        colorscale="Sunset",
+                                        colorbar=dict(
+                                            thickness=20, x=-0.2, tickfont=dict(size=20)),
+                                        opacity=0.8,
+                                        cmin=0,
+                                        cmax=1),
+                            name="Binary Detection")
+        fig = go.Figure([bathy_plot_3d, sfig],
+                        layout_title_text="Binary Detection")
         fig.update_layout(showlegend=False)
         fig.update_yaxes(scaleanchor="x", scaleratio=1)
-        fig.show()
-        # fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-        #                              f"north_ridge_surveys/figures/2D_{DIVE_NAME}_{target}.svg"), width=750, height=750)
+        fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                    f"north_ridge_surveys/figures/binary_{DIVE_NAME}_{target}.html"))
 
         ###########
         # Simple visualizations of the data

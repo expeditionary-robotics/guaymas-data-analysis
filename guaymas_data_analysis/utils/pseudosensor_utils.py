@@ -4,8 +4,9 @@ from typing import List
 
 import numpy as np
 import pandas as pd
+from pandas.core.frame import DataFrame
+from utm.conversion import R
 
-from .data_utils import detect_ascent_descent
 
 # Which scientific data to use in the analysis
 SENTRY_DIVE_ALL_KEYS = [
@@ -20,6 +21,7 @@ SENTRY_DIVE_ALL_KEYS = [
 # TODO: what do these mean?
 BINARY_SENSOR_MODES = [
     "meanstd",
+    "meanstd_windowed",
     "percentiles",
 ]
 
@@ -27,7 +29,7 @@ BINARY_SENSOR_MODES = [
 class BinarySensor():
     """Ingests a dataframe of sensor data. Detects anomalies based on either
     deviations from the average or percentiles and consensus among a window of a
-    numnber of sensors. Essentially creates an upper and lower bound of expected
+    number of sensors. Essentially creates an upper and lower bound of expected
     ranges for a sensor stream.
 
     Args:
@@ -76,7 +78,7 @@ class BinarySensor():
 
     def _window_dfs(self, df: pd.DataFrame):
         """Take a dataframe and return a list of frame chunks"""
-        return [df[i:i+calibration_window] for i in self._calibration_window]
+        return [df[i:i+self._calibration_window] for i in self._calibration_window]
 
     def get_single_datastream_limits(self, df: pd.DataFrame):
         """ obtain upper and lower bounds for data based off
@@ -152,11 +154,6 @@ class BinarySensor():
                 (df[k] > self._calibrated_vals[k]["max"])
                 | (df[k] < self._calibrated_vals[k]["min"])
             )[0]
-            if self._filter_ascent_descent:
-                anomaly_idxs = anomaly_idxs[
-                    np.logical_and(anomaly_idxs > start_idx,
-                                   anomaly_idxs < end_idx)
-                ]
 
             windowed_anomaly_idxs = np.zeros((len(df)))
             for idx in anomaly_idxs:
@@ -204,3 +201,106 @@ class BinarySensor():
             print(f"JSON config info written to {json_output_file}")
 
         return df_return
+
+
+class SciencePseudoSensor(object):
+    """Classifies multi-sensor detections as hydrothermal fluid."""
+
+    def __init__(self, sensors, treatments, weights, num_corroboration):
+        """Initializes the class.
+
+        Input:
+            sensors (list[string]): sensor targets in df
+            treatments (list[dict]): how to treat each sensor data stream
+            weights (list[floats]): weight used for corroboration
+            num_corroboration (int): total number of sensors used for corroboration
+        """
+
+        # Inputs
+        self.source_df = DataFrame()
+        self.sensors = sensors
+        self.treatments = treatments
+        self.weights = weights
+        self.num_corroboration = num_corroboration
+        
+
+    def get_detections(self, df):
+        """Returns a dataframe with binary signal."""
+        self.source_df = df
+        self.detection_df = DataFrame()
+        self._apply_treatments()
+        self._compute_corroboration()
+        return self.detection_df
+
+    def _apply_treatments(self):
+        """Applies treatments to each datastream."""
+        for sensor, treatment in zip(self.sensors, self.treatments):
+            data = self.source_df[sensor]
+            self.detection_df.loc[:, sensor] = data
+            if treatment["method"] is "threshold":
+                if treatment["direction"] is "<":
+                    self.detection_df.loc[:,
+                                          f"{sensor}_treatment"] = [int(x < treatment["threshold"]) for x in data]
+                elif treatment["direction"] is ">":
+                    self.detection_df.loc[:,
+                                          f"{sensor}_treatment"] = [int(x > treatment["threshold"]) for x in data]
+                else:
+                    raise ValueError(
+                        "Need to specify a direction to apply threshold, > or <.")
+            elif treatment["method"] is "meanstd" or treatment["method"] is "percentile":
+                mini, maxi = self._compute_stream_limits(data, treatment)
+                self.detection_df.loc[:, f"{sensor}_treatment"] = [
+                    int(x > maxi or x < mini) for x in data]
+            elif treatment["method"] is "meanstd_window":
+                mini, maxi = self._compute_stream_limits(data, treatment)
+                self.detection_df.loc[:, f"{sensor}_treatment"] = [
+                    int(x > maxi.values[i] or x < mini.values[i]) for i, x in enumerate(data.values)]
+            else:
+                raise ValueError(
+                    "Not supporting methods that are not threshold, meanstd, meanstd_window, or percentile.")
+
+    def _compute_corroboration(self):
+        """Looks at data and computes final binary signal as a smoothed weighted sum."""
+        col_targs = []
+        for sensor, weight in zip(self.sensors, self.weights):
+            self.detection_df.loc[:,
+                                  f"{sensor}_weighted"] = self.detection_df[f"{sensor}_treatment"] * weight
+            col_targs.append(f"{sensor}_weighted")
+
+        self.detection_df.loc[:, "corroboration_total"] = self.detection_df[col_targs].sum(
+            axis=1)
+        self.detection_df.loc[:, "detections"] = [int(x >= self.num_corroboration) for x in self.detection_df.corroboration_total]
+
+    def _compute_stream_limits(self, data, specifications):
+        """ obtain upper and lower bounds for data based off
+            the sensor configuration
+
+        Args:
+            data (pd.DataSeries): sensor data series
+            specifications (dict): information for computation
+
+        Returns:
+            min, max (float, float): bounds within which data is not anomalous
+        """
+        if specifications["method"] == "meanstd":
+            mean = np.nanmean(data)
+            std = np.nanstd(data)
+            min = mean - specifications["num_std"] * std
+            max = mean + specifications["num_std"] * std
+
+        elif specifications["method"] == "meanstd_window":
+            mean = data.rolling(specifications["window"], min_periods=1).mean(centered=True)
+            std = data.rolling(specifications["window"], min_periods=1).std(centered=True)
+            min = mean - specifications["num_std"] * std
+            max = mean + specifications["num_std"] * std
+
+        elif specifications["method"] == "percentile":
+            min, max = np.nanpercentile(
+                data, [specifications["percentile_lower"],
+                       specifications["percentile_upper"]]
+            )
+
+        else:
+            assert False  # shouldn't be possible
+
+        return min, max
