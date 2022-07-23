@@ -111,6 +111,9 @@ if __name__ == "__main__":
     gga_df = pd.read_table(INPUT_GGA, delimiter=",")
     gga_df["CTD Bottle #"] = gga_df["CTD Bottle #"].astype(np.int32)
     
+    # Perform correction based on ChemYak procedure 
+    # ppm > uatm by applying extraction efficiency and internal instrument pressure
+    # uatm > nM via solubility computation
     gga_df.loc[:, 'ch4_ppm_corr_05'] = gga_df["GGA Methane"] / 0.05
     gga_df.loc[:, 'ch4_ppm_corr_15'] = gga_df["GGA Methane"] / 0.15
     gga_df.loc[:, 'ch4_ppm_corr_12'] = gga_df["GGA Methane"] / 0.12
