@@ -310,9 +310,9 @@ if __name__ == '__main__':
             total, positive, prop = compute_proportions(temp_obs.detections)
             horiz_radii_detections[f"{r1}m-{r2}m"] = dict(low_end=r1,
                                                           high_end=r2,
-                                                          total_obs=total,
-                                                          positive_obs=positive,
-                                                          prop_positive_obs=prop)
+                                                          total_obs=int(total),
+                                                          positive_obs=int(positive),
+                                                          prop_positive_obs=float(prop))
             last_dist = r2
 
         # Proportion within an absolute distance
@@ -325,9 +325,9 @@ if __name__ == '__main__':
             total, positive, prop = compute_proportions(temp_obs.detections)
             abs_radii_detections[f"{r1}m-{r2}m"] = dict(low_end=r1,
                                                         high_end=r2,
-                                                        total_obs=total,
-                                                        positive_obs=positive,
-                                                        prop_positive_obs=prop)
+                                                        total_obs=int(total),
+                                                        positive_obs=int(positive),
+                                                        prop_positive_obs=float(prop))
             last_dist = r2
 
         # Distribution of hits throughout mission, by phase
@@ -335,9 +335,9 @@ if __name__ == '__main__':
         for phase in np.unique(mission_df.phase):
             detects = mission_df[mission_df.phase == phase]
             ptot, ppos, pprop = compute_proportions(detects.detections)
-            phase_detects[phase] = dict(total_obs=ptot,
-                                        positive_obs=ppos,
-                                        prop_positive_obs=pprop)
+            phase_detects[phase] = dict(total_obs=int(ptot),
+                                        positive_obs=int(ppos),
+                                        prop_positive_obs=float(pprop))
 
         # Distribution of hits throughout mission, time window
         current_time = pd.to_datetime(
@@ -345,7 +345,6 @@ if __name__ == '__main__':
         end_time = pd.to_datetime(
             mission_df.timestamp.values[-1]).tz_localize("UTC")
         time_detections = {}
-        mission_hour = 0
         while current_time < end_time:
             r1, r2 = current_time, current_time + \
                 pd.to_timedelta(DETECTION_TIME_BINS, unit="minutes")
@@ -354,16 +353,14 @@ if __name__ == '__main__':
             total, positive, prop = compute_proportions(temp_obs.detections)
             time_detections[f"{r1}-{r2}"] = dict(low_end=r1,
                                                  high_end=r2,
-                                                 mission_hour=mission_hour,
-                                                 total_obs=total,
-                                                 positive_obs=positive,
-                                                 prop_positive_obs=prop)
-            mission_hour += 1
+                                                 total_obs=int(total),
+                                                 positive_obs=int(positive),
+                                                 prop_positive_obs=float(prop))
             current_time = r2
 
-        DETECTION_DATA[DIVE_NAME] = dict(total_obs=total_obs,
-                                         positive_obs=positive_obs,
-                                         prop_positive_obs=prop_positive_obs,
+        DETECTION_DATA[DIVE_NAME] = dict(total_obs=int(total_obs),
+                                         positive_obs=int(positive_obs),
+                                         prop_positive_obs=float(prop_positive_obs),
                                          horiz_bins=horiz_radii_detections,
                                          abs_bins=abs_radii_detections,
                                          time_bins=time_detections,
