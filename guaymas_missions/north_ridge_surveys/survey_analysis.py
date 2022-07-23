@@ -2,12 +2,14 @@
 
 import os
 import utm
+import json
 import pandas as pd
 import numpy as np
 import scipy.stats as stats
 import scipy.signal
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from datetime import timedelta
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from itertools import combinations
@@ -91,11 +93,30 @@ def compute_distance_and_angle(ref_coord, traj_coord):
     return dist, ang
 
 
+def compute_3D_distance(ref_coord, traj_coord):
+    """Compute absolute distance between points with depth."""
+    RX, RY, ZN, ZL = utm.from_latlon(ref_coord[0], ref_coord[1])
+    TX, TY, _, _ = utm.from_latlon(
+        traj_coord[0], traj_coord[1], force_zone_number=ZN, force_zone_letter=ZL)
+
+    # determine distance
+    dist = np.sqrt((RX-TX)**2 + (RY-TY)**2 + (ref_coord[2]-traj_coord[2])**2)
+    return dist
+
+
+def compute_proportions(data):
+    """Compute proportion of dtections in series."""
+    total_obs = len(data)
+    positive_obs = data.sum()
+    prop_positive_obs = positive_obs/total_obs
+    return total_obs, positive_obs, prop_positive_obs
+
+
 ##########
 # Globals
 ##########
 DIVES = ["sentry607", "sentry608", "sentry610", "sentry611"]
-RIDGE_REFERENCE = (27.412645, -111.386915)
+RIDGE_REFERENCE = (27.412645, -111.386915, -1840)
 SENSOR = SciencePseudoSensor(sensors=["O2_conc", "potential_temp", "practical_salinity", "obs", "dorpdt", "methane"],
                              treatments=[dict(method="meanstd_window", num_std=3, window=60*60),
                                          dict(
@@ -108,11 +129,13 @@ SENSOR = SciencePseudoSensor(sensors=["O2_conc", "potential_temp", "practical_sa
                                          dict(method="threshold", threshold=0.3, direction=">")],
                              weights=[1., 2., 1., 2., 2., 2.],
                              num_corroboration=4)
+DETECTION_RADIUS = 1000  # meters from reference point to compute spatial diversity
+DETECTION_SPATIAL_BINS = 50  # meters
+DETECTION_TIME_BINS = 60  # minutes
+DETECTION_DATA = {}  # storge for per-mission detection data
 
 METHANE_LABEL = ["Pythia Fundamental", "Pythia Fundamental",
                  "Pythia Fundamental", "SAGE Methane"]
-# PLOT_VARS = ["fundamental"]
-# PLOT_LABELS = ["Pythia Fundamental"]
 PLOT_VARS = ["O2_conc", "potential_temp",
              "practical_salinity", "obs", "dorpdt", "methane"]
 PLOT_LABELS = ["Oxygen Concentration (umol/kg)", "Potential Temperature (C)",
@@ -151,11 +174,11 @@ SMOOTH_VARS = ["O2_conc", "obs", "potential_temp",
                "practical_salinity", "methane"]
 
 NORMALIZE = True  # whether to normalize the methane data
-NORM_THRESH = 0.3  # detection threshold for methane presence in normalized data
 
 # Plotting options
 PLOT_N = 5  # subsample plot visualizations
 DEPTH_PLOT = False  # whether to plot detrended data
+PLOT_BINARY = False  # whether to plot binary detection data
 PLOT_3D = False  # create a 3D HTML plot of data
 PLOT_2D = False  # create bathy underlay 2D overview
 PLOT_TIME = False  # create a time series plot of the mission
@@ -185,8 +208,12 @@ if __name__ == '__main__':
     # Compute an oriented distance measure from ridge reference
     m = scc_df.apply(lambda x: compute_distance_and_angle(
         RIDGE_REFERENCE, (float(x['lat']), float(x['lon']))), axis=1)
-    scc_df["distance"] = [x[0] for x in m.values]
-    scc_df["angle"] = [x[1] for x in m.values]
+    scc_df.loc[:, "distance"] = [x[0] for x in m.values]
+    scc_df.loc[:, "angle"] = [x[1] for x in m.values]
+
+    # Compute absolute distance measure from ridge reference
+    scc_df.loc[:, "abs_distance"] = scc_df.apply(lambda x: compute_3D_distance(
+        RIDGE_REFERENCE, (float(x['lat']), float(x['lon']), -float(x['depth']))), axis=1)
 
     # Perform base conversions (smoothing, detrending, normalization)
     if DETREND is True:
@@ -203,7 +230,7 @@ if __name__ == '__main__':
 
         # Normalize data
         if NORMALIZE is True:
-            mission_df["methane"] = norm(mission_df["methane"])
+            mission_df.loc[:, "methane"] = norm(mission_df["methane"])
 
         # Add the right methane target
         if METHANE_LABEL[idx] is "Pythia Fundamental":
@@ -228,42 +255,119 @@ if __name__ == '__main__':
         detections_df.to_csv(os.path.join(
             os.getenv("SENTRY_OUTPUT"), f"north_ridge_surveys/detection_{DIVE_NAME}.csv"))
         mission_df.loc[:, "detections"] = detections_df["detections"]
-        sensor_detection_plots = make_subplots(rows=len(PLOT_VARS)+1, cols=1, shared_xaxes=True,
-                                               subplot_titles=tuple(PLOT_LABELS+["Detections"]))
-        for ids, sensor in enumerate(PLOT_VARS):
-            sensor_detection_plots.add_trace(go.Scatter(x=mission_df["timestamp"][::PLOT_N],
-                                                        y=detections_df[f"{sensor}_treatment"][::PLOT_N],
-                                                        mode="markers"),
-                                             row=ids+1,
-                                             col=1)
-        sensor_detection_plots.add_trace(go.Scatter(x=mission_df["timestamp"][::PLOT_N],
-                                                    y=mission_df["detections"][::PLOT_N],
-                                                    mode="markers"),
-                                         row=ids+2,
-                                         col=1)
-        sensor_detection_plots.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                                       f"north_ridge_surveys/figures/binary_{DIVE_NAME}_{target}.svg"), width=750, height=750)
 
-        mission_df.sort_values(by="detections", ascending=True, inplace=True)
-        sfig = go.Scatter3d(x=mission_df["lon"][::PLOT_N],
-                            y=mission_df["lat"][::PLOT_N],
-                            z=-mission_df["depth"][::PLOT_N],
-                            mode="markers",
-                            marker=dict(size=2,
-                                        color=mission_df["detections"][::PLOT_N],
-                                        colorscale="Sunset",
-                                        colorbar=dict(
-                                            thickness=20, x=-0.2, tickfont=dict(size=20)),
-                                        opacity=0.8,
-                                        cmin=0,
-                                        cmax=1),
-                            name="Binary Detection")
-        fig = go.Figure([bathy_plot_3d, sfig],
-                        layout_title_text="Binary Detection")
-        fig.update_layout(showlegend=False)
-        fig.update_yaxes(scaleanchor="x", scaleratio=1)
-        fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                    f"north_ridge_surveys/figures/binary_{DIVE_NAME}_{target}.html"))
+        if PLOT_BINARY is True:
+            sensor_detection_plots = make_subplots(rows=len(PLOT_VARS)+1, cols=1, shared_xaxes=True,
+                                                   subplot_titles=tuple(PLOT_LABELS+["Detections"]))
+            for ids, sensor in enumerate(PLOT_VARS):
+                sensor_detection_plots.add_trace(go.Scatter(x=mission_df["timestamp"][::PLOT_N],
+                                                            y=detections_df[f"{sensor}_treatment"][::PLOT_N],
+                                                            mode="markers"),
+                                                 row=ids+1,
+                                                 col=1)
+            sensor_detection_plots.add_trace(go.Scatter(x=mission_df["timestamp"][::PLOT_N],
+                                                        y=mission_df["detections"][::PLOT_N],
+                                                        mode="markers"),
+                                             row=ids+2,
+                                             col=1)
+            sensor_detection_plots.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                                            f"north_ridge_surveys/figures/binary_{DIVE_NAME}.svg"), width=750, height=750)
+
+            sfig = go.Scatter3d(x=mission_df["lon"][::PLOT_N],
+                                y=mission_df["lat"][::PLOT_N],
+                                z=-mission_df["depth"][::PLOT_N],
+                                mode="markers",
+                                marker=dict(size=2,
+                                            color=mission_df["detections"][::PLOT_N],
+                                            colorscale="Sunset",
+                                            colorbar=dict(
+                                                thickness=20, x=-0.2, tickfont=dict(size=20)),
+                                            opacity=0.8,
+                                            cmin=0,
+                                            cmax=1),
+                                name="Binary Detection")
+            fig = go.Figure([bathy_plot_3d, sfig],
+                            layout_title_text="Binary Detection")
+            fig.update_layout(showlegend=False)
+            fig.update_yaxes(scaleanchor="x", scaleratio=1)
+            fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                        f"north_ridge_surveys/figures/binary_{DIVE_NAME}.html"))
+
+        ###########
+        # Compute simple binary metrics
+        ###########
+        # Proportion in plume
+        total_obs, positive_obs, prop_positive_obs = compute_proportions(
+            mission_df.detections)
+
+        # Proportion within horizontal radii bins
+        last_dist = 0.
+        horiz_radii_detections = {}
+        while last_dist < DETECTION_RADIUS:
+            r1, r2 = last_dist, last_dist + DETECTION_SPATIAL_BINS
+            temp_obs = mission_df[(mission_df["distance"]
+                                   > r1) & (mission_df["distance"] <= r2)]
+            total, positive, prop = compute_proportions(temp_obs.detections)
+            horiz_radii_detections[f"{r1}m-{r2}m"] = dict(low_end=r1,
+                                                          high_end=r2,
+                                                          total_obs=total,
+                                                          positive_obs=positive,
+                                                          prop_positive_obs=prop)
+            last_dist = r2
+
+        # Proportion within an absolute distance
+        last_dist = 0.
+        abs_radii_detections = {}
+        while last_dist < DETECTION_RADIUS:
+            r1, r2 = last_dist, last_dist + DETECTION_SPATIAL_BINS
+            temp_obs = mission_df[(mission_df["abs_distance"]
+                                   > r1) & (mission_df["abs_distance"] <= r2)]
+            total, positive, prop = compute_proportions(temp_obs.detections)
+            abs_radii_detections[f"{r1}m-{r2}m"] = dict(low_end=r1,
+                                                        high_end=r2,
+                                                        total_obs=total,
+                                                        positive_obs=positive,
+                                                        prop_positive_obs=prop)
+            last_dist = r2
+
+        # Distribution of hits throughout mission, by phase
+        phase_detects = {}
+        for phase in np.unique(mission_df.phase):
+            detects = mission_df[mission_df.phase == phase]
+            ptot, ppos, pprop = compute_proportions(detects.detections)
+            phase_detects[phase] = dict(total_obs=ptot,
+                                        positive_obs=ppos,
+                                        prop_positive_obs=pprop)
+
+        # Distribution of hits throughout mission, time window
+        current_time = pd.to_datetime(
+            mission_df.timestamp.values[0]).tz_localize("UTC")
+        end_time = pd.to_datetime(
+            mission_df.timestamp.values[-1]).tz_localize("UTC")
+        time_detections = {}
+        mission_hour = 0
+        while current_time < end_time:
+            r1, r2 = current_time, current_time + \
+                pd.to_timedelta(DETECTION_TIME_BINS, unit="minutes")
+            temp_obs = mission_df[(mission_df["timestamp"]
+                                   > r1) & (mission_df["timestamp"] <= r2)]
+            total, positive, prop = compute_proportions(temp_obs.detections)
+            time_detections[f"{r1}-{r2}"] = dict(low_end=r1,
+                                                 high_end=r2,
+                                                 mission_hour=mission_hour,
+                                                 total_obs=total,
+                                                 positive_obs=positive,
+                                                 prop_positive_obs=prop)
+            mission_hour += 1
+            current_time = r2
+
+        DETECTION_DATA[DIVE_NAME] = dict(total_obs=total_obs,
+                                         positive_obs=positive_obs,
+                                         prop_positive_obs=prop_positive_obs,
+                                         horiz_bins=horiz_radii_detections,
+                                         abs_bins=abs_radii_detections,
+                                         time_bins=time_detections,
+                                         phase_bins=phase_detects)
 
         ###########
         # Simple visualizations of the data
@@ -376,7 +480,46 @@ if __name__ == '__main__':
             time_plots.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                                 f"north_ridge_surveys/figures/time_{DIVE_NAME}.svg"), width=750, height=750)
 
-        ############
-        # Save processed data product and meta data
-        ############
-        # TODO
+    hfig = []
+    afig = []
+    tfig = []
+    for k, v in DETECTION_DATA.items():
+        tot, pos, prop = v["total_obs"], v["positive_obs"], v["prop_positive_obs"]
+        print(f"Positive detections during {k}: {pos} in {tot}, {prop}")
+        print(f"Positive detections in {k} during:")
+        for kk, vv in v["phase_bins"].items():
+            tot, pos, prop = vv["total_obs"], vv["positive_obs"], vv["prop_positive_obs"]
+            print(f"    Phase {kk}: {pos} in {tot}, {prop}")
+
+        labs = []
+        heights = []
+        for kk, vv in v["horiz_bins"].items():
+            labs.append(kk)
+            heights.append(vv["prop_positive_obs"])
+        hfig.append(go.Bar(name=k, x=labs, y=heights))
+
+        labs = []
+        heights = []
+        for kk, vv in v["abs_bins"].items():
+            labs.append(kk)
+            heights.append(vv["prop_positive_obs"])
+        afig.append(go.Bar(name=k, x=labs, y=heights))
+
+        detects = []
+        for kk, vv in v["time_bins"].items():
+            detects.append(vv["positive_obs"]/DETECTION_TIME_BINS)
+        print(
+            f"Avg/Std detection rate for {k}: {np.nanmean(detects)}, {np.nanstd(detects)}")
+
+    fig = go.Figure(data=hfig)
+    fig.update_layout(barmode='group')
+    fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                                f"north_ridge_surveys/figures/hdist_detections.svg"), width=750, height=750)
+
+    fig = go.Figure(data=afig)
+    fig.update_layout(barmode='group')
+    fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                                f"north_ridge_surveys/figures/adist_detections.svg"), width=750, height=750)
+
+    with open(os.path.join(os.getenv("SENTRY_OUTPUT"), f"north_ridge_surveys/detection_metrics.json"), "w") as fp:
+        json.dump(DETECTION_DATA, fp)
