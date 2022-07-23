@@ -351,8 +351,8 @@ if __name__ == '__main__':
             temp_obs = mission_df[(mission_df["timestamp"]
                                    > r1) & (mission_df["timestamp"] <= r2)]
             total, positive, prop = compute_proportions(temp_obs.detections)
-            time_detections[f"{r1}-{r2}"] = dict(low_end=r1,
-                                                 high_end=r2,
+            time_detections[f"{r1}-{r2}"] = dict(low_end=str(r1),
+                                                 high_end=str(r2),
                                                  total_obs=int(total),
                                                  positive_obs=int(positive),
                                                  prop_positive_obs=float(prop))
