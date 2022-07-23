@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
-from guaymas_data_analysis.utils.viz_utils import get_bathy, mesh_obj, plot_and_save_ctd_data
+from guaymas_data_analysis.utils.viz_utils import get_bathy, mesh_obj, plot_and_save_ctd_data, extent_by_site
 from guaymas_data_analysis.utils.metadata_utils import ctd_site_by_number, ctd_filename_by_cast
 from guaymas_data_analysis.utils import REFERENCE
 

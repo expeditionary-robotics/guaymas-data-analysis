@@ -10,7 +10,7 @@ from guaymas_missions.sentry_rosette_transect.transect_analysis import COMPUTE_W
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from transect_utils import get_transect_rosette_sage_path, \
-    get_transect_sentry_nopp_path, get_transect_bottles_path
+    get_transect_sentry_nopp_path, get_transect_bottles_path, extract_trends, smooth_data
 
 
 def get_bathy(rsamp=0.5):
@@ -78,51 +78,107 @@ PAIRED_VARS = {"Oxygen": ("O2", "o2_umol_kg"),
                "Temperature": ("potential_temp", "pot_temp_C_its90"),
                "Salinity": ("practical_salinity", "prac_salinity")}
 
+# Groups of labels for special processing
+SENTRY_DEPTH_TARGET_VARS = ["O2", "potential_temp", "practical_salinity"]
+SENTRY_DEPTH_TARGET_LABELS = [
+    "O2", "Potential Temperature", "Practical Salinity"]
+ROSETTE_DEPTH_TARGET_VARS = ["o2_umol_kg", "pot_temp_C_its90", "prac_salinity"]
+ROSETTE_DEPTH_TARGET_LABELS = [
+    "O2 (umol/kg)", "Potential Temperature", "Practical Salinity"]
+
+SENTRY_SMOOTH_TARGET_VARS = ["O2", "obs", "potential_temp",
+                             "practical_salinity", "nopp_fundamental", "dorpdt"]
+SENTRY_SMOOTH_TARGET_LABELS = ["O2", "OBS", "Potential Temperature",
+                               "Practical Salinity", "NOPP Inverse Fundamental", "dORPdt"]
+ROSETTE_SMOOTH_TARGET_VARS = ["beam_attenuation", "o2_umol_kg",
+                              "sage_methane_ppm", "pot_temp_C_its90", "prac_salinity"]
+ROSETTE_SMOOTH_TARGET_LABELS = ["Beam Attentuation", "O2 (umol/kg)",
+                                "SAGE Methane (ppm)", "Potential Temperature",
+                                "Practical Salinity"]
+
 # Whether to visualize the contents of each input file
-VISUALIZE_SENTRY_NOPP = False
-VISUALIZE_ROSETTE_SAGE = False
+VISUALIZE_SENTRY_NOPP = True
+VISUALIZE_ROSETTE_SAGE = True
 VISUALIZE_ALL_PLATFORMS = True
 VISUALIZE_ROSETTE_SAGE_AND_BOTTLES = False
+COMPUTE_WITH_DEPTH_CORRECTION = True  # whether to subtract depth
 COMPUTE_WITH_SMOOTH = True  # whether to visualize smoothed data
 SMOOTH_OPTION = "rolling_average"  # which smoother to use
+SMOOTH_WINDOW = 15  # number of minutes to smooth over
 FIGURE_NAME_ADDITION = ""
+SENTRY_VAR_ADDITION = ""
+ROSETTE_VAR_ADDITION = ""
 
 if __name__ == "__main__":
     # Get all of the data
     scc_df = pd.read_csv(SENTRY_NOPP)
     scc_df['timestamp'] = pd.to_datetime(scc_df['timestamp'])
+    scc_df.dropna(subset=SENTRY_NOPP_VARS, inplace=True)
     bott_df = pd.read_csv(BOTTLES)
     bott_df['datetime'] = pd.to_datetime(bott_df['datetime'])
     ros_df = pd.read_csv(ROSETTE_SAGE)
     ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
+    ros_df.dropna(subset=ROSETTE_SAGE_VARS, inplace=True)
+
+    if COMPUTE_WITH_DEPTH_CORRECTION is True:
+        for v in SENTRY_DEPTH_TARGET_VARS:
+            scc_df = extract_trends(scc_df, 'depth', v)
+        for targ in SENTRY_DEPTH_TARGET_VARS:
+            SENTRY_NOPP_VARS.remove(targ)
+            SENTRY_NOPP_VARS.append(f"{targ}_anom_depth")
+            SENTRY_SMOOTH_TARGET_VARS.remove(targ)
+            SENTRY_SMOOTH_TARGET_VARS.append(f"{targ}_anom_depth")
+        for targ in SENTRY_DEPTH_TARGET_LABELS:
+            SENTRY_NOPP_LABELS.remove(targ)
+            SENTRY_NOPP_LABELS.append(f"{targ} Depth Corrected")
+            SENTRY_SMOOTH_TARGET_LABELS.remove(targ)
+            SENTRY_SMOOTH_TARGET_LABELS.append(f"{targ} Depth Corrected")
+        SENTRY_VAR_ADDITION = SENTRY_VAR_ADDITION + "_anom_depth"
+
+        for v in ROSETTE_DEPTH_TARGET_VARS:
+            ros_df = extract_trends(ros_df, 'depth_m', v)
+        for targ in ROSETTE_DEPTH_TARGET_VARS:
+            ROSETTE_SAGE_VARS.remove(targ)
+            ROSETTE_SAGE_VARS.append(f"{targ}_anom_depth_m")
+            ROSETTE_SMOOTH_TARGET_VARS.remove(targ)
+            ROSETTE_SMOOTH_TARGET_VARS.append(f"{targ}_anom_depth_m")
+        for targ in ROSETTE_DEPTH_TARGET_LABELS:
+            ROSETTE_SAGE_LABELS.remove(targ)
+            ROSETTE_SAGE_LABELS.append(f"{targ} Depth Corrected")
+            ROSETTE_SMOOTH_TARGET_LABELS.remove(targ)
+            ROSETTE_SMOOTH_TARGET_LABELS.append(f"{targ} Depth Corrected")
+        ROSETTE_VAR_ADDITION = ROSETTE_VAR_ADDITION + "_anom_depth_m"
+
+        FIGURE_NAME_ADDITION = FIGURE_NAME_ADDITION + "_depthcorr"
 
     if COMPUTE_WITH_SMOOTH:
         """Smooth all of the data targets"""
-        if SMOOTH_OPTION is "rolling_average":
-            scc_smooth_df = scc_df.rolling('15s', center=True).mean()
-            ros_smooth_df = ros_df.rolling('15s', center=True).mean()
-        elif SMOOTH_OPTION is "butter":
-            scc_smooth_df = pd.DataFrame()
-            ros_smooth_df = pd.DataFrame()
-            b, a = scipy.signal.butter(2, 0.01, fs=1)
-            for col in scc_df:
-                try:
-                    scc_smooth_df.loc[:, col] = scipy.signal.filtfilt(
-                        b, a, scc_df[col].values, padlen=150)
-                except:
-                    scc_smooth_df.loc[:, col] = scc_df[col]
-            for col in ros_df:
-                try:
-                    ros_smooth_df.loc[:, col] = scipy.signal.filtfilt(
-                        b, a, ros_df[col].values, padlen=150)
-                except:
-                    ros_smooth_df.loc[:, col] = ros_df[col]
-        else:
-            print("Currently only supporting rolling_average and butter filters")
-            pass
-        scc_df = scc_smooth_df
-        ros_df = ros_smooth_df
-        FIGURE_NAME_ADDITION = f"_smoothed_{SMOOTH_OPTION}"
+        smooth_data(scc_df, SENTRY_SMOOTH_TARGET_VARS, smooth_option=SMOOTH_OPTION, smooth_window=SMOOTH_WINDOW)
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        smooth_data(ros_df_1, ROSETTE_SMOOTH_TARGET_VARS, smooth_option=SMOOTH_OPTION, smooth_window=SMOOTH_WINDOW)
+        smooth_data(ros_df_2, ROSETTE_SMOOTH_TARGET_VARS, smooth_option=SMOOTH_OPTION, smooth_window=SMOOTH_WINDOW)
+        ros_df = ros_df_1.append(ros_df_2)
+
+        for targ in SENTRY_SMOOTH_TARGET_VARS:
+            SENTRY_NOPP_VARS.remove(targ)
+            SENTRY_NOPP_VARS.append(f"{targ}_{SMOOTH_OPTION}")
+        for targ in SENTRY_SMOOTH_TARGET_LABELS:
+            SENTRY_NOPP_LABELS.remove(targ)
+            SENTRY_NOPP_LABELS.append(f"{targ} Smoothed")
+        SENTRY_VAR_ADDITION = SENTRY_VAR_ADDITION + f"_{SMOOTH_OPTION}"
+
+        for targ in ROSETTE_SMOOTH_TARGET_VARS:
+            ROSETTE_SAGE_VARS.remove(targ)
+            ROSETTE_SAGE_VARS.append(f"{targ}_{SMOOTH_OPTION}")
+        for targ in ROSETTE_SMOOTH_TARGET_LABELS:
+            ROSETTE_SAGE_LABELS.remove(targ)
+            ROSETTE_SAGE_LABELS.append(f"{targ} Smoothed")
+        ROSETTE_VAR_ADDITION = ROSETTE_VAR_ADDITION + f"_{SMOOTH_OPTION}"
+
+        FIGURE_NAME_ADDITION = FIGURE_NAME_ADDITION + "_smoothed"
 
     # Set up plotting axes meta data
     plot_xlabels_ros = []
@@ -175,7 +231,7 @@ if __name__ == "__main__":
         # Create 2D plots
         for rx, bx, tx in zip(plot_xlabels_ros, plot_xlabels_bott, plot_xlabel_titles):
             plt.scatter(
-                temp_ros_df[rx], temp_ros_df["sage_methane_ppm"], label="SAGE")
+                temp_ros_df[rx], temp_ros_df[f"sage_methane_ppm{ROSETTE_VAR_ADDITION}"], label="SAGE")
             plt.scatter(bott_df[bx], bott_df["GGA Methane"],
                         label="GGA, Raw PPM")
             plt.scatter(
@@ -197,7 +253,7 @@ if __name__ == "__main__":
             ax1.set_xlabel(tx)
             ax1.set_ylabel('Methane, PPM', color="blue")
             ax1.scatter(
-                temp_ros_df[rx], temp_ros_df["sage_methane_ppm"], label="HCF", c="cyan")
+                temp_ros_df[rx], temp_ros_df[f"sage_methane_ppm{ROSETTE_VAR_ADDITION}"], label="HCF", c="cyan")
             ax1.vlines(x=bott_df[bx], ymin=bott_df["GGA Methane"],
                        ymax=bott_df["ch4_ppm_corr_05"], color="blue", label="GGA Range")
             ax1.scatter(x=bott_df[bx], y=bott_df["GGA Methane"],
@@ -218,7 +274,7 @@ if __name__ == "__main__":
         # Create spatial plot with methane and nh4 comparisons
         sage_plot = create_2d_plot(x=temp_ros_df['usbl_lon'],
                                    y=temp_ros_df['usbl_lat'],
-                                   c=temp_ros_df['sage_methane_ppm'],
+                                   c=temp_ros_df[f'sage_methane_ppm{ROSETTE_VAR_ADDITION}'],
                                    cbar_loc=-0.15,
                                    name="SAGE Methane (PPM)",
                                    cbar_name="SAGE")
@@ -227,7 +283,7 @@ if __name__ == "__main__":
         sage_plot_3d = create_3d_plot(x=sx,
                                       y=sy,
                                       z=-temp_ros_df['depth_m'],
-                                      c=temp_ros_df['sage_methane_ppm'],
+                                      c=temp_ros_df[f'sage_methane_ppm{ROSETTE_VAR_ADDITION}'],
                                       cbar_loc=-0.15,
                                       name="SAGE Methane (PPM)",
                                       cbar_name="SAGE")
@@ -350,7 +406,7 @@ if __name__ == "__main__":
                                 subplot_titles=tuple(SENTRY_NOPP_LABELS))
             for i, v in enumerate(SENTRY_NOPP_VARS):
                 var = scc_df[v]
-                if v is not "obs":
+                if "obs" is not v:
                     cmin, cmax = np.nanpercentile(
                         var, 10), np.nanpercentile(var, 90)
                 else:
@@ -361,40 +417,40 @@ if __name__ == "__main__":
             fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
                            f"transect/figures/sentry_nopp_{tx}{FIGURE_NAME_ADDITION}.html"))
 
-        # create spatial 2D slice plots, with altimeter
-        alt_fig = create_2d_plot(x=scc_df['ridge_distance'],
-                                 y=-scc_df['depth'] - scc_df['height'],
-                                 c="Gray",
-                                 o=0.1,
-                                 cmap=None,
-                                 cbar_loc=-0.15,
-                                 name="Bottom from Altimeter")
-        for i, v in enumerate(SENTRY_NOPP_VARS):
-            var = scc_df[v]
-            if v is not "obs":
-                cmin, cmax = np.nanpercentile(
-                    var, 10), np.nanpercentile(var, 90)
-            else:
-                cmin, cmax = 0.0, 0.2
-            spat_fig = create_2d_plot(x=scc_df['ridge_distance'],
-                                      y=-scc_df['depth'],
-                                      c=var,
-                                      cmap="Inferno",
-                                      cmin=cmin,
-                                      cmax=cmax,
-                                      name=SENTRY_NOPP_LABELS[i],
-                                      cbar_name=SENTRY_NOPP_LABELS[i])
-            fig = go.Figure(data=[alt_fig, spat_fig],
-                            layout_title_text=SENTRY_NOPP_LABELS[i])
-            fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                            f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}{FIGURE_NAME_ADDITION}.png"), width=1500)
-            fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
-                                        f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}{FIGURE_NAME_ADDITION}.html"))
+            # create spatial 2D slice plots, with altimeter
+            alt_fig = create_2d_plot(x=scc_df[rx],
+                                    y=-scc_df['depth'] - scc_df['height'],
+                                    c="Gray",
+                                    o=0.1,
+                                    cmap=None,
+                                    cbar_loc=-0.15,
+                                    name="Bottom from Altimeter")
+            for i, v in enumerate(SENTRY_NOPP_VARS):
+                var = scc_df[v]
+                if "obs" is not v:
+                    cmin, cmax = np.nanpercentile(
+                        var, 10), np.nanpercentile(var, 90)
+                else:
+                    cmin, cmax = 0.0, 0.2
+                spat_fig = create_2d_plot(x=scc_df[rx],
+                                        y=-scc_df['depth'],
+                                        c=var,
+                                        cmap="Inferno",
+                                        cmin=cmin,
+                                        cmax=cmax,
+                                        name=SENTRY_NOPP_LABELS[i],
+                                        cbar_name=SENTRY_NOPP_LABELS[i])
+                fig = go.Figure(data=[alt_fig, spat_fig],
+                                layout_title_text=SENTRY_NOPP_LABELS[i])
+                fig.write_image(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}{FIGURE_NAME_ADDITION}.png"), width=1500)
+                fig.write_html(os.path.join(os.getenv("SENTRY_OUTPUT"),
+                                            f"transect/figures/sentry_nopp_alt_slice_{tx}_{v}{FIGURE_NAME_ADDITION}.html"))
 
         # create spatial plots
         for i, v in enumerate(SENTRY_NOPP_VARS):
             var = scc_df[v]
-            if v is not "obs":
+            if "obs" is not v:
                 cmin, cmax = np.nanpercentile(
                     var, 10), np.nanpercentile(var, 90)
             else:
@@ -435,9 +491,16 @@ if __name__ == "__main__":
 
         # create 2D plots
         for sccx, rosx, titlex in zip(plot_xlabels_scc, plot_xlabels_ros, plot_xlabel_titles):
-            for k, v in PAIRED_VARS.items():
+            for k, vq in PAIRED_VARS.items():
+                v = list(vq)
+                for val in SENTRY_NOPP_VARS:
+                    if v[0] in val:
+                        v[0] = val
+                for val in ROSETTE_SAGE_VARS:
+                    if v[1] in val:
+                        v[1] = val
                 scc_var = scc_df[v[0]]
-                if v[0] is not "obs":
+                if "obs" not in v[0]:
                     sccmin, sccmax = np.nanpercentile(
                         scc_var, 10), np.nanpercentile(scc_var, 90)
                 else:
@@ -447,7 +510,7 @@ if __name__ == "__main__":
                     ros_var, 10), np.nanpercentile(ros_var, 90)
 
                 cmap = "Inferno"
-                if v[0] is "nopp_fundamental":
+                if "nopp_fundamental" in v[1]:
                     cmap = "Inferno_r"
                 scc_fig = create_2d_plot(x=scc_df[sccx],
                                          y=-scc_df['depth'],
@@ -475,8 +538,16 @@ if __name__ == "__main__":
 
         # create spatial plots
         for k, v in PAIRED_VARS.items():
+            # check if value has been updated
+            v = list(vq)
+            for val in SENTRY_NOPP_VARS:
+                if v[0] in val:
+                    v[0] = val
+            for val in ROSETTE_SAGE_VARS:
+                if v[1] in val:
+                    v[1] = val
             scc_var = scc_df[v[0]]
-            if v[0] is not "obs":
+            if 'obs' not in v[0]:
                 sccmin, sccmax = np.nanpercentile(
                     scc_var, 10), np.nanpercentile(scc_var, 90)
             else:
@@ -486,7 +557,7 @@ if __name__ == "__main__":
                 ros_var, 10), np.nanpercentile(ros_var, 90)
 
             cmap = "Inferno"
-            if v[0] is "nopp_fundamental":
+            if "nopp_fundamental" in v[0]:
                 cmap = "Inferno_r"
             sccvar_plot = create_2d_plot(x=scc_df['lon'],
                                          y=scc_df['lat'],

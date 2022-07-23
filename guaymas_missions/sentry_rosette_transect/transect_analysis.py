@@ -13,20 +13,8 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 from itertools import combinations
 from transect_utils import get_transect_bottles_path, \
-    get_transect_rosette_sage_path, get_transect_sentry_nopp_path
-
-
-def extract_trends(df, x, y, fit="polyfit", inplace=True):
-    """Find the trends relationship between inputs and remove."""
-    if fit is "polyfit":
-        z = np.polyfit(df[x].values, df[y].values, 1)
-        p = np.poly1d(z)
-        df[f"{y}_bkgnd_{x}"] = p(df[x].values)
-        df[f"{y}_anom_{x}"] = df[y].values - df[f"{y}_bkgnd_{x}"].values
-        return df
-    else:
-        print("Currently only supporting polyfit removal.")
-        return df
+    get_transect_rosette_sage_path, get_transect_sentry_nopp_path, \
+        extract_trends, smooth_data
 
 
 def compute_global_correlation(df, df_vars, df_labels, fname):
@@ -135,6 +123,7 @@ def compute_anoms_and_regimes(df, df_idx, df_vars, df_labels,  window, fname, fn
         axs[1].plot(df[df_idx].values[:-(window-1)], mp[:, 0])
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                  f"transect/figures/{fname}_anomaly_{col}{fname_add}.png"))
+        plt.close()
 
         fig, axs = plt.subplots(2, sharex=True, gridspec_kw={'hspace': 0})
         plt.suptitle(
@@ -151,6 +140,7 @@ def compute_anoms_and_regimes(df, df_idx, df_vars, df_labels,  window, fname, fn
             x=df[df_idx].values[regime_locations[1]], linestyle="dashed")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                     f"transect/figures/{fname}_regimes_{col}{fname_add}.png"))
+        plt.close()
 
         print(f"{fname}")
         print(
@@ -204,19 +194,20 @@ LOCAL_CORRELATION = False  # generates line and heatmaps of rolling correlations
 CORR_WINDOW = 15  # sets the rolling correlation window, minutes
 STUMPY_FRONT_ANALYSIS = False  # whether to attempt front ID with stumpy package
 FRONT_WINDOW = 15  # sets the window for front detection, minutes
-RUPTURES_FRONT_ANALYSIS = False  # whether to attempt front ID with ruptures package
-CREATE_STATS_PLOTS = True  # whether to generate summary stats plots
+RUPTURES_FRONT_ANALYSIS = True # whether to attempt front ID with ruptures package
+CREATE_STATS_PLOTS = False  # whether to generate summary stats plots
 FIGURE_NAME_ADDITION = ""
 
 if __name__ == '__main__':
     # Get all of the data
     scc_df = pd.read_csv(SENTRY_NOPP)
     scc_df['timestamp'] = pd.to_datetime(scc_df['timestamp'])
+    scc_df.dropna(subset=SENTRY_NOPP_VARS, inplace=True)
     bott_df = pd.read_csv(BOTTLES)
     bott_df['datetime'] = pd.to_datetime(bott_df['datetime'])
     ros_df = pd.read_csv(ROSETTE_SAGE)
     ros_df['datetime'] = pd.to_datetime(ros_df['datetime'])
-    ros_df = ros_df.dropna(subset=["sage_methane_ppm"])
+    ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
 
     if REMOVE_DEPTH is True:
         for v in SENTRY_DEPTH_TARGET_VARS:
@@ -249,25 +240,14 @@ if __name__ == '__main__':
 
     if COMPUTE_WITH_SMOOTH is True:
         """Smooth all of the data targets"""
-        if SMOOTH_OPTION is "rolling_average":
-            r_window_size = int(60 * SMOOTH_WINDOW)  # seconds
-            for col in SENTRY_SMOOTH_TARGET_VARS:
-                scc_df[f"{col}_{SMOOTH_OPTION}"] = scc_df[col].rolling(
-                    r_window_size, center=True).mean()
-            for col in ROSETTE_SMOOTH_TARGET_VARS:
-                ros_df[f"{col}_{SMOOTH_OPTION}"] = ros_df[col].rolling(
-                    r_window_size, center=True).mean()
-        elif SMOOTH_OPTION is "butter":
-            b, a = scipy.signal.butter(2, 0.01, fs=1)
-            for col in SENTRY_SMOOTH_TARGET_VARS:
-                scc_df[f"{col}_{SMOOTH_OPTION}"] = scipy.signal.filtfilt(
-                    b, a, scc_df[col].values, padlen=150)
-            for col in ROSETTE_SMOOTH_TARGET_VARS:
-                ros_df[f"{col}_{SMOOTH_OPTION}"] = scipy.signal.filtfilt(
-                    b, a, ros_df[col].values, padlen=150)
-        else:
-            print("Currently only supporting rolling_average and butter filters")
-            pass
+        smooth_data(scc_df, SENTRY_SMOOTH_TARGET_VARS, smooth_option=SMOOTH_OPTION, smooth_window=SMOOTH_WINDOW)
+        ros_df_1 = ros_df[ros_df.datetime <=
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        ros_df_2 = ros_df[ros_df.datetime >
+                          pd.Timestamp("2021-11-30 07:00:04")]
+        smooth_data(ros_df_1, ROSETTE_SMOOTH_TARGET_VARS, smooth_option=SMOOTH_OPTION, smooth_window=SMOOTH_WINDOW)
+        smooth_data(ros_df_2, ROSETTE_SMOOTH_TARGET_VARS, smooth_option=SMOOTH_OPTION, smooth_window=SMOOTH_WINDOW)
+        ros_df = ros_df_1.append(ros_df_2)
 
         for targ in SENTRY_SMOOTH_TARGET_VARS:
             SENTRY_NOPP_VARS.remove(targ)
@@ -281,15 +261,25 @@ if __name__ == '__main__':
         for targ in ROSETTE_SMOOTH_TARGET_LABELS:
             ROSETTE_SAGE_LABELS.remove(targ)
             ROSETTE_SAGE_LABELS.append(f"{targ} Smoothed")
-
+        
+        FIGURE_NAME_ADDITION = FIGURE_NAME_ADDITION + "_smoothed"
+    
     if GENERATE_ST_PLOTS is True:
-        plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
+        c = plt.scatter(scc_df["ctd_sal"], scc_df["ctd_temp"],
                     c=scc_df["nopp_fundamental"], cmap="inferno_r")
+        plt.colorbar(c)
+        plt.xlabel("Salinity")
+        plt.ylabel("Temperature")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                  f"transect/figures/sentry_st_methane{FIGURE_NAME_ADDITION}.png"))
+        plt.show()
         plt.close()
-        plt.scatter(ros_df["prac_salinity"], ros_df["pot_temp_C_its90"],
+        
+        c = plt.scatter(ros_df["prac_salinity"], ros_df["pot_temp_C_its90"],
                     c=ros_df["sage_methane_ppm"], cmap="inferno")
+        plt.colorbar(c)
+        plt.xlabel("Salinity")
+        plt.ylabel("Temperature")
         plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                  f"transect/figures/rosette_st_methane{FIGURE_NAME_ADDITION}.png"))
         plt.close()
@@ -297,6 +287,7 @@ if __name__ == '__main__':
     if GLOBAL_CORRELATION is True:
         # Global Pearson Correlation
         ros_df = ros_df.dropna(subset=ROSETTE_SAGE_VARS)
+        scc_df = scc_df.dropna(subset=SENTRY_NOPP_VARS)
         compute_global_correlation(scc_df, SENTRY_NOPP_VARS, SENTRY_NOPP_LABELS,
                                    f"transect/figures/sentry_nopp_global_corr{FIGURE_NAME_ADDITION}.png")
         compute_global_correlation(ros_df, ROSETTE_SAGE_VARS, ROSETTE_SAGE_LABELS,
@@ -343,6 +334,7 @@ if __name__ == '__main__':
             plt.title(f'Change Point Detection: {SENTRY_NOPP_LABELS[i]}')
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/sentry_nopp_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
 
         ros_df_1 = ros_df[ros_df.datetime <=
                           pd.Timestamp("2021-11-30 07:00:04")]
@@ -358,6 +350,7 @@ if __name__ == '__main__':
             plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/rosette_sage_leg1_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
 
             algo = rpt.Pelt(model=model).fit(ros_df_2[col].values)
             result = algo.predict(pen=10)
@@ -365,6 +358,7 @@ if __name__ == '__main__':
             plt.title(f'Change Point Detection: {ROSETTE_SAGE_LABELS[i]}')
             plt.savefig(os.path.join(os.getenv("SENTRY_OUTPUT"),
                                      f"transect/figures/rosette_sage_leg2_ruptures_{col}{FIGURE_NAME_ADDITION}.png"))
+            plt.close()
 
     if CREATE_STATS_PLOTS is True:
         scc_df.dropna(subset=SENTRY_NOPP_VARS, inplace=True)

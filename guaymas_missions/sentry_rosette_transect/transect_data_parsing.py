@@ -2,16 +2,17 @@
 
 import pandas as pd
 import numpy as np
+from gasex import sol
 from scipy.interpolate import interp1d
 from transect_utils import get_transect_input_paths, \
-    get_transect_sentry_nopp_path, get_transect_bottles_path, \
+    get_transect_sentry_pythia_path, get_transect_bottles_path, \
     get_transect_rosette_sage_path, RIDGE
 from guaymas_data_analysis.utils.data_utils import distance
 
 # Import data targets for the transect
-INPUT_NOPP, INPUT_SAGE_LEG1, INPUT_SAGE_LEG2, INPUT_ROSETTE, INPUT_GGA, \
+INPUT_PYTHIA, INPUT_SAGE_LEG1, INPUT_SAGE_LEG2, INPUT_ROSETTE, INPUT_GGA, \
     INPUT_NH4, INPUT_BOTTLES, INPUT_SENTRY = get_transect_input_paths()
-OUTPUT_SENTRY_NOPP = get_transect_sentry_nopp_path()
+OUTPUT_SENTRY_PYTHIA = get_transect_sentry_pythia_path()
 OUTPUT_BOTTLES = get_transect_bottles_path()
 OUTPUT_ROSETTE_SAGE = get_transect_rosette_sage_path()
 
@@ -74,7 +75,7 @@ if __name__ == "__main__":
     sage2_df['t'] = sage2_df['t'].astype(np.int32)
     sage2_df = sage2_df.drop_duplicates(subset="t")
 
-    """Merge CTD and HCF legs"""
+    """Merge CTD and SAGE legs"""
     if len(sage1_df) < len(ctd1_df):
         interpy = interp1d(
             sage1_df['t'], sage1_df['sage_methane_ppm'], bounds_error=False)
@@ -109,22 +110,37 @@ if __name__ == "__main__":
     bott_df["bottle_pos"] = bott_df["bottle_pos"].astype(np.int32)
     gga_df = pd.read_table(INPUT_GGA, delimiter=",")
     gga_df["CTD Bottle #"] = gga_df["CTD Bottle #"].astype(np.int32)
+    
+    # Perform correction based on ChemYak procedure 
+    # ppm > uatm by applying extraction efficiency and internal instrument pressure
+    # uatm > nM via solubility computation
     gga_df.loc[:, 'ch4_ppm_corr_05'] = gga_df["GGA Methane"] / 0.05
     gga_df.loc[:, 'ch4_ppm_corr_15'] = gga_df["GGA Methane"] / 0.15
+    gga_df.loc[:, 'ch4_ppm_corr_12'] = gga_df["GGA Methane"] / 0.12
+    gga_df.loc[:, 'ch4_ppm_corr_064'] = gga_df["GGA Methane"] / 0.064
+    gga_df.loc[:, 'ch4_uatm_corr_12'] =  gga_df.apply(lambda x: (((x['GGA Methane'] - 1.86) / 0.12 + 1.86) * (495. / 1000.)), axis=1)
+    gga_df.loc[:, 'ch4_uatm_corr_064'] =  gga_df.apply(lambda x: (((x['GGA Methane'] - 1.86) / 0.064 + 1.86) * (495. / 1000.)), axis=1)
     # find the right bottles
     bott_df = bott_df[bott_df["cast_name"] == "CTD-11"]
-    bott_df = bott_df.merge(gga_df, left_on="bottle_pos",
-                            right_on="CTD Bottle #", how="outer")
-    bott_df = bott_df.dropna(subset=["CTD Salinity"])
+    # bott_df = bott_df.merge(gga_df, left_on="bottle_pos",
+    #                         right_on="CTD Bottle #", how="left")
+    bott_df = pd.merge(bott_df, gga_df, left_on="bottle_pos", right_on="CTD Bottle #", how="left")
+    print(len(bott_df))
+    # bott_df = bott_df.dropna(subset=["CTD Salinity"])
     nh4_df = pd.read_table(INPUT_NH4, delimiter=",")
     nh4_df = nh4_df[nh4_df["Cast"] == 11]
     nh4_df["Bottle #"] = nh4_df["Bottle #"].astype(np.int32)
-    bott_df = bott_df.merge(nh4_df, left_on="bottle_pos",
-                            right_on="Bottle #", how="outer")
-    bott_df = bott_df.dropna(subset=["CTD Salinity"])
+    # bott_df = bott_df.merge(nh4_df, left_on="bottle_pos",
+    #                         right_on="Bottle #", how="left")
+    bott_df = pd.merge(bott_df, nh4_df, left_on="bottle_pos",
+                            right_on="Bottle #", how="left")
+    print(len(bott_df))
+    # bott_df = bott_df.dropna(subset=["CTD Salinity"])
     bott_df["datetime"] = pd.to_datetime(bott_df["datetime"])
     bott_df["ridge_distance"] = bott_df.apply(lambda x: distance(
         float(RIDGE[0]), float(RIDGE[1]), float(x["lat"]), float(x["lon"]))*1000., axis=1)
+    bott_df["ch4_nM_corr_12"] = bott_df.apply(lambda x: sol.sol_SP_pt(x["prac_salinity"], x["pot_temp_C_its90"], gas='CH4', p_dry=x["ch4_uatm_corr_12"]*0.000001, units='mM')/0.000001, axis=1)
+    bott_df["ch4_nM_corr_064"] = bott_df.apply(lambda x: sol.sol_SP_pt(x["prac_salinity"], x["pot_temp_C_its90"], gas='CH4', p_dry=x["ch4_uatm_corr_064"]*0.000001, units='mM')/0.000001, axis=1)
     print(f"Saving GGA, NH4, and Bottle dataframe to {OUTPUT_BOTTLES}")
     bott_df.to_csv(OUTPUT_BOTTLES)
 
@@ -136,5 +152,5 @@ if __name__ == "__main__":
     scc_df = scc_df.dropna()
     scc_df["ridge_distance"] = scc_df.apply(lambda x: distance(
         float(RIDGE[0]), float(RIDGE[1]), float(x["lat"]), float(x["lon"]))*1000., axis=1)
-    print(f"Saving Sentry and NOPP dataframe to {OUTPUT_SENTRY_NOPP}")
-    scc_df.to_csv(OUTPUT_SENTRY_NOPP)
+    print(f"Saving Sentry and Pythia dataframe to {OUTPUT_SENTRY_PYTHIA}")
+    scc_df.to_csv(OUTPUT_SENTRY_PYTHIA)
